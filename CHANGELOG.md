@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.23
+
+### Added
+
+- `npm run install:local` / `scripts/install-local.sh` builds a VSIX and installs it into Cursor, VS Code, and Insiders when those CLIs are on PATH.
+
 ## 0.1.22
 
 ### Changed
