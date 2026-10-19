@@ -19,7 +19,11 @@ export type HostToWebview =
       readonly versions: readonly string[];
     };
 
-export type RecoveryAction = 'repair' | 'retry' | 'install';
+export type RecoveryAction =
+  | 'repair'
+  | 'retry'
+  | 'install'
+  | 'clean-checksum-cache';
 
 /** A row the user selected, identified by its project and dependency name. */
 export interface DependencySelection {

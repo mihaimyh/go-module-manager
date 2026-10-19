@@ -1,6 +1,7 @@
 import type { EcosystemAdapter } from '../../core/adapter';
 import type { AdvisoryReport, AdvisoryTarget } from '../../core/model';
 import type { AdvisorySource } from './advisory';
+import { cleanChecksumCache } from './checksum';
 import { downloadModules } from './download';
 import { readWorkspace } from './read';
 import { createProjectResolver } from './resolve';
@@ -39,6 +40,7 @@ export function createGoAdapter(
     resolve: (manifestPath, resolveOptions) =>
       resolver.resolve(manifestPath, resolveOptions),
     repair: (manifestPath) => downloadModules(manifestPath, runner),
+    cleanChecksumCache: () => cleanChecksumCache(runner),
     update: (request) => updater.update(request),
     undo: (manifestPath) => updater.undo(manifestPath),
     tidy: (manifestPath) => tidyProject(manifestPath, runner),

@@ -59,7 +59,8 @@ export class GmmPanel {
           typeof message.manifestPath === 'string' &&
           (message.action === 'repair' ||
             message.action === 'retry' ||
-            message.action === 'install')
+            message.action === 'install' ||
+            message.action === 'clean-checksum-cache')
         ) {
           this.handlers.onRecover(message.manifestPath, message.action);
         }

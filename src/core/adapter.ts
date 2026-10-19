@@ -44,6 +44,8 @@ export interface EcosystemAdapter {
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
   /** Recovery for a missing lock entry; bounded to the owning project. */
   repair?(manifestPath: string): Promise<void>;
+  /** Deletes the toolchain's checksum cache; modules are never touched. */
+  cleanChecksumCache?(): Promise<void>;
   /** Moves the selected dependencies, writing only that project's manifest and lock file. */
   update?(request: UpdateRequest): Promise<UpdateResult>;
   /** Restores the snapshot taken before the last update of that project. */

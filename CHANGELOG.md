@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11
+
+### Added
+
+- A checksum-database failure now offers **Repair checksum cache**: it deletes Go's cached `sumdb` data (downloaded modules are kept) and retries, without ever disabling verification.
+
 ## 0.1.10
 
 ### Fixed

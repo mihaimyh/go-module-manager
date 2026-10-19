@@ -104,6 +104,14 @@ function recover(
   manifestPath: string,
   action: RecoveryAction,
 ): void {
+  void handleRecovery(context, manifestPath, action);
+}
+
+async function handleRecovery(
+  context: vscode.ExtensionContext,
+  manifestPath: string,
+  action: RecoveryAction,
+): Promise<void> {
   const adapter = current?.adapter;
   if (!adapter) {
     return;
@@ -111,6 +119,31 @@ function recover(
 
   if (action === 'install') {
     openToolchainPage(adapter);
+    return;
+  }
+
+  if (action === 'clean-checksum-cache') {
+    const clean = adapter.cleanChecksumCache;
+    if (clean === undefined) {
+      void vscode.window.showErrorMessage(
+        'GMM: this project cannot repair the checksum cache automatically.',
+      );
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      "GMM: delete Go's cached checksum database data? Downloaded modules are kept; the next lookup downloads the checksum data again.",
+      { modal: true },
+      'Repair',
+    );
+    if (confirmed !== 'Repair') {
+      return;
+    }
+    try {
+      await clean();
+      await refresh(context, true);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`GMM: ${messageOf(error)}`);
+    }
     return;
   }
 
