@@ -113,7 +113,7 @@ describe('reading declared dependencies', () => {
     );
   });
 
-  it('keeps the healthy projects when one cannot be read', async () => {
+  it('keeps a failed project visible beside the healthy ones', async () => {
     const root = newWorkspace();
     const healthy = moduleAt(root, 'a');
     moduleAt(root, 'broken');
@@ -131,11 +131,13 @@ describe('reading declared dependencies', () => {
 
     const model = await createGoAdapter(runner).read(root);
 
-    expect(model.projects.map((entry) => entry.name)).toEqual(['example.com/a']);
+    expect(model.projects.map((entry) => entry.name)).toEqual(['broken', 'example.com/a']);
+    expect(model.projects[0]?.failure?.kind).toBe('unknown');
+    expect(model.projects[0]?.failure?.message).toMatch(/errors parsing/);
     expect(model.rows).toHaveLength(1);
   });
 
-  it('reports the toolchain error when no project can be read', async () => {
+  it('reports every failing project without losing them', async () => {
     const root = newWorkspace();
     moduleAt(root, 'broken');
     const runner = new FakeRunner(() => ({
@@ -144,8 +146,10 @@ describe('reading declared dependencies', () => {
       exitCode: 1,
     }));
 
-    await expect(createGoAdapter(runner).read(root)).rejects.toThrow(
-      /errors parsing go\.mod/,
-    );
+    const model = await createGoAdapter(runner).read(root);
+
+    expect(model.projects).toHaveLength(1);
+    expect(model.projects[0]?.failure?.kind).toBe('unknown');
+    expect(model.rows).toHaveLength(0);
   });
 });

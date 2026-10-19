@@ -59,9 +59,17 @@ describe('resolveProjects', () => {
     expect(reports).toHaveLength(3);
     expect(reports.filter((report) => report.failure !== undefined)).toEqual([
       expect.objectContaining({
-        failure: { manifestPath: '/repo/b/go.mod', message: 'missing go.sum entry' },
+        failure: {
+          manifestPath: '/repo/b/go.mod',
+          projectName: 'example.com/p1',
+          kind: 'unknown',
+          message: 'missing go.sum entry',
+        },
       }),
     ]);
+    expect(
+      model.projects.find((project) => project.name === 'example.com/p1')?.failure?.kind,
+    ).toBe('unknown');
     expect(model.projects).toHaveLength(3);
   });
 

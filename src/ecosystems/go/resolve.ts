@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ResolveOptions } from '../../core/adapter';
 import type { ResolvedDependency, ResolvedProject } from '../../core/model';
+import { failureKindFor, GoCommandError } from './errors';
 import { parseModuleList, type ModuleListEntry } from './goJson';
 import { firstLine, goEnv, type GoRunner } from './runner';
 import { classifyGoUpdate, isPseudoVersion } from './version';
@@ -68,7 +69,10 @@ async function resolveProject(
   });
 
   if (result.exitCode !== 0) {
-    throw new Error(`${manifestPath}: ${firstLine(result.stderr)}`);
+    throw new GoCommandError(
+      failureKindFor(result.exitCode, result.stderr),
+      `${manifestPath}: ${firstLine(result.stderr)}`,
+    );
   }
 
   const dependencies = parseModuleList(result.stdout)

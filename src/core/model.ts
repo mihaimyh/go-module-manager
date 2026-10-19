@@ -51,10 +51,26 @@ export interface ResolvedProject {
   readonly dependencies: readonly ResolvedDependency[];
 }
 
+/** Why a project could not be read or resolved. Drives the one recovery action. */
+export type FailureKind =
+  | 'missing-go-sum'
+  | 'go-not-found'
+  | 'private-module'
+  | 'timeout'
+  | 'unknown';
+
+export interface ProjectFailure {
+  readonly manifestPath: string;
+  readonly projectName: string;
+  readonly kind: FailureKind;
+  readonly message: string;
+}
+
 export interface ProjectSummary {
   readonly name: string;
   readonly manifestPath: string;
   readonly dependencyCount: number;
+  readonly failure?: ProjectFailure;
 }
 
 export interface PanelModel {
@@ -65,6 +81,7 @@ export interface PanelModel {
 export interface AssembleOptions {
   readonly includePrereleases?: boolean;
   readonly advisories?: ReadonlyMap<string, readonly Advisory[]>;
+  readonly failures?: readonly ProjectFailure[];
 }
 
 /**
@@ -117,7 +134,38 @@ export function assemblePanelModel(
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
-  return { projects: summaries, rows };
+  return { projects: withFailures(summaries, options.failures ?? []), rows };
+}
+
+/**
+ * Attaches failures to the summaries they belong to and adds a summary for a
+ * manifest that could not be read at all, so a broken project stays visible.
+ */
+function withFailures(
+  summaries: readonly ProjectSummary[],
+  failures: readonly ProjectFailure[],
+): ProjectSummary[] {
+  const result = summaries.map((summary) => {
+    const failure = failures.find((entry) => entry.manifestPath === summary.manifestPath);
+    return failure === undefined ? summary : { ...summary, failure };
+  });
+
+  for (const failure of failures) {
+    if (!result.some((summary) => summary.manifestPath === failure.manifestPath)) {
+      result.push({
+        name: failure.projectName,
+        manifestPath: failure.manifestPath,
+        dependencyCount: 0,
+        failure,
+      });
+    }
+  }
+
+  return result.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function mergeFailure(model: PanelModel, failure: ProjectFailure): PanelModel {
+  return { ...model, projects: withFailures(model.projects, [failure]) };
 }
 
 /**
@@ -134,6 +182,15 @@ export function mergeResolution(
 
   return {
     ...model,
+    projects: model.projects.map((project) =>
+      project.manifestPath === resolved.manifestPath && project.failure !== undefined
+        ? {
+            name: project.name,
+            manifestPath: project.manifestPath,
+            dependencyCount: project.dependencyCount,
+          }
+        : project,
+    ),
     rows: model.rows.map((row) => {
       if (row.manifestPath !== resolved.manifestPath) {
         return row;

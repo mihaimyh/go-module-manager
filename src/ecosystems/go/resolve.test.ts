@@ -110,8 +110,11 @@ describe('resolving a project', () => {
       exitCode: 1,
     }));
 
-    await expect(createProjectResolver(runner).resolve(manifestPath)).rejects.toThrow(
-      /missing go\.sum entry/,
-    );
+    await expect(
+      createProjectResolver(runner).resolve(manifestPath),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/missing go\.sum entry/),
+      kind: 'missing-go-sum',
+    });
   });
 });

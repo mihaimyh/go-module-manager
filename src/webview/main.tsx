@@ -31,7 +31,19 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
-  return <App model={state.model} progress={state.progress} onRefresh={onRefresh} />;
+  const onRecover = (manifestPath: string, action: 'download' | 'retry' | 'install'): void => {
+    const message: WebviewToHost = { type: 'recover', manifestPath, action };
+    vscode.postMessage(message);
+  };
+
+  return (
+    <App
+      model={state.model}
+      progress={state.progress}
+      onRefresh={onRefresh}
+      onRecover={onRecover}
+    />
+  );
 }
 
 const container = document.getElementById('root');

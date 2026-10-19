@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { EcosystemAdapter } from '../core/adapter';
+import type { RecoveryAction } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
@@ -31,9 +32,18 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
   }
 
   current = loaded;
-  GmmPanel.show(context.extensionUri, loaded.model, () => {
-    void refresh(context, true);
-  });
+  GmmPanel.show(
+    context.extensionUri,
+    loaded.model,
+    {
+      onRefresh: () => {
+        void refresh(context, true);
+      },
+      onRecover: (manifestPath, action) => {
+        recover(context, manifestPath, action);
+      },
+    },
+  );
 
   // Declared rows are already on screen; versions and candidates follow.
   void fillUpdates(loaded, false);
@@ -48,6 +58,40 @@ async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promis
   current = loaded;
   GmmPanel.update(loaded.model);
   void fillUpdates(loaded, fresh);
+}
+
+function recover(
+  context: vscode.ExtensionContext,
+  manifestPath: string,
+  action: RecoveryAction,
+): void {
+  const adapter = current?.adapter;
+  if (!adapter) {
+    return;
+  }
+
+  if (action === 'install') {
+    void vscode.env.openExternal(vscode.Uri.parse('https://go.dev/dl/'));
+    return;
+  }
+
+  if (action === 'download') {
+    const download = adapter.download;
+    if (!download) {
+      return;
+    }
+    void download(manifestPath).then(
+      () => refresh(context, false),
+      (error: unknown) => {
+        void vscode.window.showErrorMessage(
+          `GMM: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
+    return;
+  }
+
+  void refresh(context, true);
 }
 
 async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
@@ -97,7 +141,8 @@ async function loadModel(
   const root = developmentRoot ?? folder.uri.fsPath;
 
   try {
-    const [adapter] = detectAdapters(root);
+    const goPath = vscode.workspace.getConfiguration('gmm').get<string>('goPath') ?? 'go';
+    const [adapter] = detectAdapters(root, { goPath });
     if (!adapter) {
       void vscode.window.showErrorMessage(`GMM: no supported manifest under ${root}.`);
       return undefined;

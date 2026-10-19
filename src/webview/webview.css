@@ -284,6 +284,58 @@ input[type='checkbox'] {
   color: var(--gmm-muted);
 }
 
+/* Failures */
+
+.failures {
+  border-bottom: 1px solid var(--gmm-border);
+  background: color-mix(in srgb, var(--gmm-warning) 6%, transparent);
+  max-height: 30vh;
+  overflow: auto;
+}
+
+.failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--gmm-border-soft);
+  font-size: 12px;
+}
+
+.failure:last-child {
+  border-bottom: 0;
+}
+
+.failure > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--gmm-warning);
+}
+
+.failure-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.failure-text strong {
+  display: block;
+  font-size: 12px;
+}
+
+.failure-text p {
+  margin: 2px 0 0;
+  max-height: 3.6em;
+  overflow: hidden;
+  color: var(--gmm-muted);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.failure .button {
+  flex: 0 0 auto;
+}
+
 /* Workspace */
 
 .workspace {

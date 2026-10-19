@@ -1,12 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import type { HostToWebview, ResolveProgress } from '../core/messages';
+import type { HostToWebview, RecoveryAction, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 
 /**
  * One panel, reused. The webview is a rendering of a model the host owns:
  * it never decides anything about versions, files or writes.
  */
+export interface PanelHandlers {
+  readonly onRefresh: () => void;
+  readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
+}
+
 export class GmmPanel {
   private static current: GmmPanel | undefined;
 
@@ -17,16 +22,25 @@ export class GmmPanel {
     private readonly panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     private model: PanelModel,
-    private onRefresh: () => void,
+    private handlers: PanelHandlers,
   ) {
     panel.webview.html = renderHtml(panel.webview, extensionUri);
     panel.webview.onDidReceiveMessage(
-      (message: { type?: string }) => {
+      (message: { type?: string; manifestPath?: string; action?: string }) => {
         if (message.type === 'ready') {
           this.post();
         }
         if (message.type === 'refresh') {
-          this.onRefresh();
+          this.handlers.onRefresh();
+        }
+        if (
+          message.type === 'recover' &&
+          typeof message.manifestPath === 'string' &&
+          (message.action === 'download' ||
+            message.action === 'retry' ||
+            message.action === 'install')
+        ) {
+          this.handlers.onRecover(message.manifestPath, message.action);
         }
       },
       undefined,
@@ -38,13 +52,13 @@ export class GmmPanel {
   static show(
     extensionUri: vscode.Uri,
     model: PanelModel,
-    onRefresh: () => void,
+    handlers: PanelHandlers,
   ): void {
     const existing = GmmPanel.current;
     if (existing) {
       existing.model = model;
       existing.progress = undefined;
-      existing.onRefresh = onRefresh;
+      existing.handlers = handlers;
       existing.panel.reveal();
       existing.post();
       return;
@@ -61,7 +75,7 @@ export class GmmPanel {
       },
     );
 
-    GmmPanel.current = new GmmPanel(panel, extensionUri, model, onRefresh);
+    GmmPanel.current = new GmmPanel(panel, extensionUri, model, handlers);
   }
 
   static update(model: PanelModel, progress?: ResolveProgress): void {

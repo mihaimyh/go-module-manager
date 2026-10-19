@@ -12,6 +12,13 @@ export type HostToWebview = {
   readonly progress?: ResolveProgress;
 };
 
+export type RecoveryAction = 'download' | 'retry' | 'install';
+
 export type WebviewToHost =
   | { readonly type: 'ready' }
-  | { readonly type: 'refresh' };
+  | { readonly type: 'refresh' }
+  | {
+      readonly type: 'recover';
+      readonly manifestPath: string;
+      readonly action: RecoveryAction;
+    };

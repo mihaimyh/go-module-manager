@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Advisory, PanelModel } from '../src/core/model';
+import { mergeFailure, type Advisory, type PanelModel } from '../src/core/model';
 import { resolveProjects } from '../src/core/updates';
 import { createGoAdapter } from '../src/ecosystems/go/adapter';
 import type { GoRunner } from '../src/ecosystems/go/runner';
@@ -46,14 +46,32 @@ if (resolve === undefined) {
   throw new Error('the Go adapter must expose resolve');
 }
 
+/** A failure state for the harness, so the recovery banner can be reviewed. */
+function withFixtureFailure(model: PanelModel): PanelModel {
+  if (process.env.GMM_HARNESS_FAILURE !== '1') {
+    return model;
+  }
+  const project = model.projects[0];
+  if (project === undefined) {
+    return model;
+  }
+  return mergeFailure(model, {
+    manifestPath: project.manifestPath,
+    projectName: project.name,
+    kind: 'missing-go-sum',
+    message: 'go: missing go.sum entry for module providing package rsc.io/quote',
+  });
+}
+
 void (async () => {
   const declared = await adapter.read(root);
-  const model = await resolveProjects(
+  const resolved = await resolveProjects(
     declared,
     (manifestPath, options) => resolve(manifestPath, options),
     () => undefined,
     { concurrency: 2 },
   );
+  const model = withFixtureFailure(resolved);
 
   process.stdout.write(
     JSON.stringify({

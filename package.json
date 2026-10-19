@@ -22,6 +22,16 @@
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
+    "configuration": {
+      "title": "GMM",
+      "properties": {
+        "gmm.goPath": {
+          "type": "string",
+          "default": "go",
+          "description": "Path to the go executable. Set this when go is not on PATH."
+        }
+      }
+    },
     "commands": [
       {
         "command": "gmm.openPanel",

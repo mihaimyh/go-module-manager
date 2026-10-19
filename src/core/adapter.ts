@@ -17,4 +17,6 @@ export interface EcosystemAdapter {
   readonly manifestFile: string;
   read(workspaceRoot: string): Promise<PanelModel>;
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
+  /** Recovery for a missing go.sum entry; bounded to the owning module. */
+  download?(manifestPath: string): Promise<void>;
 }

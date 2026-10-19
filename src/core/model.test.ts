@@ -97,6 +97,69 @@ describe('assemblePanelModel', () => {
   });
 });
 
+describe('project failures', () => {
+  it('attaches a failure to its project and keeps the rows', () => {
+    const model = assemblePanelModel(
+      project([{ name: 'rsc.io/quote', version: 'v1.5.1' }]),
+      new Map(),
+      {
+        failures: [
+          {
+            manifestPath: MANIFEST,
+            projectName: 'example.com/a',
+            kind: 'missing-go-sum',
+            message: 'go: missing go.sum entry',
+          },
+        ],
+      },
+    );
+
+    expect(model.projects[0]?.failure?.kind).toBe('missing-go-sum');
+    expect(model.rows).toHaveLength(1);
+  });
+
+  it('adds a summary for a project that could not be read at all', () => {
+    const model = assemblePanelModel(project([]), new Map(), {
+      failures: [
+        {
+          manifestPath: '/repo/broken/go.mod',
+          projectName: 'broken',
+          kind: 'unknown',
+          message: 'go: errors parsing go.mod',
+        },
+      ],
+    });
+
+    expect(model.projects.map((entry) => entry.name)).toEqual(['broken', 'example.com/a']);
+    expect(model.projects[0]?.dependencyCount).toBe(0);
+    expect(model.projects[0]?.failure?.message).toMatch(/errors parsing/);
+  });
+
+  it('clears the failure once the project resolves', () => {
+    const failed = assemblePanelModel(
+      project([{ name: 'rsc.io/quote', version: 'v1.5.1' }]),
+      new Map(),
+      {
+        failures: [
+          {
+            manifestPath: MANIFEST,
+            projectName: 'example.com/a',
+            kind: 'missing-go-sum',
+            message: 'go: missing go.sum entry',
+          },
+        ],
+      },
+    );
+
+    const model = mergeResolution(failed, {
+      manifestPath: MANIFEST,
+      dependencies: [{ name: 'rsc.io/quote', version: 'v1.5.1' }],
+    });
+
+    expect(model.projects[0]?.failure).toBeUndefined();
+  });
+});
+
 describe('mergeResolution', () => {
   const declared = assemblePanelModel(
     project([

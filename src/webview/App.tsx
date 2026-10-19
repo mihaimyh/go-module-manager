@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { ResolveProgress } from '../core/messages';
-import type { Advisory, DependencyRow, PanelModel } from '../core/model';
+import type { RecoveryAction, ResolveProgress } from '../core/messages';
+import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
   ArrowRightIcon,
@@ -29,9 +29,10 @@ interface AppProps {
   readonly model: PanelModel | undefined;
   readonly progress?: ResolveProgress;
   readonly onRefresh: () => void;
+  readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
 }
 
-export function App({ model, progress, onRefresh }: AppProps): JSX.Element {
+export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('dependencies');
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -211,6 +212,33 @@ export function App({ model, progress, onRefresh }: AppProps): JSX.Element {
           <span className="selection-count">{checked.size} selected</span>
         ) : null}
       </nav>
+
+      {model.projects.some((project) => project.failure !== undefined) ? (
+        <div className="failures">
+          {model.projects.map((project) => {
+            const failure = project.failure;
+            if (failure === undefined) {
+              return null;
+            }
+            return (
+              <div className="failure" role="alert" key={project.manifestPath}>
+                <WarningIcon size={16} />
+                <div className="failure-text">
+                  <strong>{project.name}</strong>
+                  <p className="mono">{failure.message}</p>
+                </div>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => onRecover(project.manifestPath, actionFor(failure.kind))}
+                >
+                  {labelFor(failure.kind)}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <main className="workspace">
         <section className="list" aria-label="Dependencies">
@@ -530,4 +558,24 @@ async function copyPath(path: string): Promise<void> {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value !== '';
+}
+
+function actionFor(kind: FailureKind): RecoveryAction {
+  if (kind === 'missing-go-sum') {
+    return 'download';
+  }
+  if (kind === 'go-not-found') {
+    return 'install';
+  }
+  return 'retry';
+}
+
+function labelFor(kind: FailureKind): string {
+  if (kind === 'missing-go-sum') {
+    return 'Run go mod download';
+  }
+  if (kind === 'go-not-found') {
+    return 'Install Go';
+  }
+  return 'Retry';
 }

@@ -1,7 +1,15 @@
-import { mergeResolution, type PanelModel, type ResolvedProject } from './model';
+import {
+  mergeFailure,
+  mergeResolution,
+  type FailureKind,
+  type PanelModel,
+  type ResolvedProject,
+} from './model';
 
 export interface ResolveFailure {
   readonly manifestPath: string;
+  readonly projectName: string;
+  readonly kind: FailureKind;
   readonly message: string;
 }
 
@@ -65,16 +73,15 @@ export async function resolveProjects(
         done += 1;
         onProgress({ done, total, model: current });
       } catch (error) {
+        const failure: ResolveFailure = {
+          manifestPath: project.manifestPath,
+          projectName: project.name,
+          kind: failureKind(error),
+          message: error instanceof Error ? error.message : String(error),
+        };
+        current = mergeFailure(current, failure);
         done += 1;
-        onProgress({
-          done,
-          total,
-          model: current,
-          failure: {
-            manifestPath: project.manifestPath,
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
+        onProgress({ done, total, model: current, failure });
       }
     }
   };
@@ -82,4 +89,18 @@ export async function resolveProjects(
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
   return current;
+}
+
+const KNOWN_KINDS: readonly FailureKind[] = [
+  'missing-go-sum',
+  'go-not-found',
+  'private-module',
+  'timeout',
+  'unknown',
+];
+
+/** Ecosystems signal a kind on the error; anything else is unknown. */
+function failureKind(error: unknown): FailureKind {
+  const kind = (error as { kind?: unknown } | null)?.kind;
+  return KNOWN_KINDS.find((candidate) => candidate === kind) ?? 'unknown';
 }

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { GoCommandError } from './errors';
 
 export interface RunOptions {
   readonly cwd: string;
@@ -21,9 +22,9 @@ export interface GoRunner {
   run(args: readonly string[], options: RunOptions): Promise<RunResult>;
 }
 
-export class GoNotFoundError extends Error {
-  constructor() {
-    super('The go executable was not found on PATH.');
+export class GoNotFoundError extends GoCommandError {
+  constructor(goPath: string) {
+    super('go-not-found', `The ${goPath} executable was not found on PATH.`);
     this.name = 'GoNotFoundError';
   }
 }
@@ -42,33 +43,40 @@ export function firstLine(text: string): string {
   return line?.trim() ?? 'the go command failed without output';
 }
 
-export const execGoRunner: GoRunner = {
-  run(args, options) {
-    return new Promise<RunResult>((resolve, reject) => {
-      execFile(
-        'go',
-        [...args],
-        {
-          cwd: options.cwd,
-          env: options.env,
-          timeout: options.timeoutMs,
-          maxBuffer: 10 * 1024 * 1024,
-          windowsHide: true,
-          ...(options.signal ? { signal: options.signal } : {}),
-        },
-        (error, stdout, stderr) => {
-          if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
-            reject(new GoNotFoundError());
-            return;
-          }
-          const code = (error as { code?: unknown } | null)?.code;
-          resolve({
-            stdout,
-            stderr,
-            exitCode: error ? (typeof code === 'number' ? code : 1) : 0,
-          });
-        },
-      );
-    });
-  },
-};
+export function createExecGoRunner(goPath = 'go'): GoRunner {
+  return {
+    run(args, options) {
+      return new Promise<RunResult>((resolve, reject) => {
+        execFile(
+          goPath,
+          [...args],
+          {
+            cwd: options.cwd,
+            env: options.env,
+            timeout: options.timeoutMs,
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+            ...(options.signal ? { signal: options.signal } : {}),
+          },
+          (error, stdout, stderr) => {
+            if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+              reject(new GoNotFoundError(goPath));
+              return;
+            }
+            const code = (error as { code?: unknown } | null)?.code;
+            const timedOut =
+              error !== null && (error.killed === true || error.signal === 'SIGTERM');
+
+            resolve({
+              stdout,
+              stderr,
+              exitCode: error ? (timedOut ? 124 : typeof code === 'number' ? code : 1) : 0,
+            });
+          },
+        );
+      });
+    },
+  };
+}
+
+export const execGoRunner: GoRunner = createExecGoRunner();
