@@ -349,7 +349,9 @@ export function App({
           <span className="count-chip">
             {tab === 'browse'
               ? `${searchItems.length} results`
-              : `${visible.length} of ${tabRows.length}`}
+              : tab === 'vulnerabilities' && scopedAdvisoryIds.size !== tabRows.length
+                ? `${visible.length} of ${tabRows.length} modules (${scopedAdvisoryIds.size} advisories)`
+                : `${visible.length} of ${tabRows.length}`}
           </span>
           <span className="divider" aria-hidden="true" />
           <div className="search">
@@ -1530,20 +1532,21 @@ function Row({
             {row.name}
           </span>
           {row.transitive ? <span className="chip">indirect</span> : null}
-          {row.advisories.length > 0 ? (
-            <span
-              className={`chip ${
-                row.advisories.some((advisory) => advisory.reachable === true)
-                  ? 'reachable'
-                  : 'advisory'
-              }`}
-              title={row.advisories.map((advisory) => advisory.id).join(', ')}
-            >
-              {row.advisories.some((advisory) => advisory.reachable === true)
-                ? 'reachable'
-                : 'advisory'}
-            </span>
-          ) : null}
+          {row.advisories.length > 0 ? (() => {
+            const reachableCount = row.advisories.filter((a) => a.reachable === true).length;
+            const isReachable = reachableCount > 0;
+            const count = isReachable ? reachableCount : row.advisories.length;
+            const noun = isReachable ? 'reachable' : count === 1 ? 'advisory' : 'advisories';
+            const label = count > 1 ? `${count} ${noun}` : noun;
+            return (
+              <span
+                className={`chip ${isReachable ? 'reachable' : 'advisory'}`}
+                title={row.advisories.map((advisory) => advisory.id).join(', ')}
+              >
+                {label}
+              </span>
+            );
+          })() : null}
           {row.replacement === undefined ? null : (
             <span
               className="chip replaced"
