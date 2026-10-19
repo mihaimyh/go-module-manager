@@ -5,12 +5,12 @@ import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
 
-interface LoadedWorkspace {
+interface LoadedModel {
   readonly adapter: EcosystemAdapter;
   readonly model: PanelModel;
 }
 
-let current: LoadedWorkspace | undefined;
+let current: LoadedModel | undefined;
 let refreshTimer: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -25,7 +25,7 @@ export function deactivate(): void {
 }
 
 async function openPanel(context: vscode.ExtensionContext): Promise<void> {
-  const loaded = await loadWorkspace(context);
+  const loaded = await loadModel(context);
   if (!loaded) {
     return;
   }
@@ -40,7 +40,7 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
 }
 
 async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promise<void> {
-  const loaded = await loadWorkspace(context);
+  const loaded = await loadModel(context);
   if (!loaded) {
     return;
   }
@@ -50,11 +50,14 @@ async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promis
   void fillUpdates(loaded, fresh);
 }
 
-async function fillUpdates(loaded: LoadedWorkspace, fresh: boolean): Promise<void> {
+async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
   const resolve = loaded.adapter.resolve;
   if (!resolve) {
     return;
   }
+
+  const total = loaded.model.projects.length;
+  GmmPanel.update(loaded.model, { done: 0, total });
 
   await resolveProjects(
     loaded.model,
@@ -64,6 +67,11 @@ async function fillUpdates(loaded: LoadedWorkspace, fresh: boolean): Promise<voi
         return;
       }
       GmmPanel.update(report.model, { done: report.done, total: report.total });
+      if (report.failure) {
+        void vscode.window.showWarningMessage(
+          `GMM: could not check ${report.failure.manifestPath}. ${report.failure.message}`,
+        );
+      }
     },
     { concurrency: 4, fresh },
   );
@@ -73,9 +81,9 @@ async function fillUpdates(loaded: LoadedWorkspace, fresh: boolean): Promise<voi
  * `GMM_WORKSPACE_ROOT` points at a sample workspace while developing the
  * extension itself. It is ignored in a published build.
  */
-async function loadWorkspace(
+async function loadModel(
   context: vscode.ExtensionContext,
-): Promise<LoadedWorkspace | undefined> {
+): Promise<LoadedModel | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage('GMM: open a folder before opening the module panel.');

@@ -1,4 +1,4 @@
-import { applyUpdates, type PanelModel, type ResolvedProject } from './model';
+import { mergeResolution, type PanelModel, type ResolvedProject } from './model';
 
 export interface ResolveFailure {
   readonly manifestPath: string;
@@ -15,6 +15,7 @@ export interface ResolveReport {
 export interface ResolveProjectsOptions {
   readonly concurrency?: number;
   readonly fresh?: boolean;
+  readonly includePrereleases?: boolean;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -56,7 +57,11 @@ export async function resolveProjects(
 
       try {
         const resolved = await resolve(project.manifestPath, { fresh: options.fresh });
-        current = applyUpdates(current, resolved);
+        current = mergeResolution(current, resolved, {
+          ...(options.includePrereleases === undefined
+            ? {}
+            : { includePrereleases: options.includePrereleases }),
+        });
         done += 1;
         onProgress({ done, total, model: current });
       } catch (error) {

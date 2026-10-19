@@ -17,5 +17,4 @@ export interface EcosystemAdapter {
   readonly manifestFile: string;
   read(workspaceRoot: string): Promise<PanelModel>;
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
-  invalidate?(): void;
 }

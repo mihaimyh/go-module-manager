@@ -12,7 +12,6 @@ export function createGoAdapter(runner: GoRunner): EcosystemAdapter {
     manifestFile: 'go.mod',
     read: (workspaceRoot) => readWorkspace(workspaceRoot, runner),
     resolve: (manifestPath, options) => resolver.resolve(manifestPath, options),
-    invalidate: () => resolver.invalidate(),
   };
 }
 

@@ -102,18 +102,6 @@ describe('resolving a project', () => {
     expect(left).toEqual(right);
   });
 
-  it('forgets the cache when invalidated', async () => {
-    const manifestPath = moduleWithFiles('module example.com/a\n');
-    const runner = new FakeRunner(() => ({ stdout: LIST_JSON, stderr: '', exitCode: 0 }));
-    const resolver = createProjectResolver(runner);
-
-    await resolver.resolve(manifestPath);
-    resolver.invalidate();
-    await resolver.resolve(manifestPath);
-
-    expect(runner.calls).toHaveLength(2);
-  });
-
   it('reports the toolchain error instead of an empty build list', async () => {
     const manifestPath = moduleWithFiles('module example.com/a\n');
     const runner = new FakeRunner(() => ({

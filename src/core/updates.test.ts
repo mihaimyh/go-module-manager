@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PanelModel, ResolvedProject } from './model';
-import { applyUpdates } from './model';
+import { mergeResolution } from './model';
 import { resolveProjects, type ResolveReport } from './updates';
 
 function emptyModel(manifests: readonly string[]): PanelModel {
@@ -96,6 +96,6 @@ describe('resolveProjects', () => {
 
     expect(seen[0]?.rows[0]?.resolvedVersion).toBe('v1.5.2');
     expect(seen[0]?.rows[0]?.candidate).toBe('v1.6.0');
-    expect(applyUpdates(model, { manifestPath, dependencies: [] }).rows[0]?.resolvedVersion).toBeUndefined();
+    expect(mergeResolution(model, { manifestPath, dependencies: [] }).rows[0]?.resolvedVersion).toBeUndefined();
   });
 });

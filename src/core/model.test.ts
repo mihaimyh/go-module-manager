@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assemblePanelModel,
-  applyUpdates,
+  mergeResolution,
   type Advisory,
   type DependencyInput,
   type ProjectInput,
@@ -97,7 +97,7 @@ describe('assemblePanelModel', () => {
   });
 });
 
-describe('applyUpdates', () => {
+describe('mergeResolution', () => {
   const declared = assemblePanelModel(
     project([
       { name: 'rsc.io/quote', version: 'v1.5.1' },
@@ -112,7 +112,7 @@ describe('applyUpdates', () => {
   );
 
   it('fills the resolved version and the candidate for the matching project', () => {
-    const model = applyUpdates(declared, {
+    const model = mergeResolution(declared, {
       manifestPath: MANIFEST,
       dependencies: [
         { name: 'rsc.io/quote', version: 'v1.5.2', candidate: 'v1.6.0', kind: 'minor' },
@@ -128,7 +128,7 @@ describe('applyUpdates', () => {
   });
 
   it('leaves other projects and advisories untouched', () => {
-    const model = applyUpdates(declared, {
+    const model = mergeResolution(declared, {
       manifestPath: '/repo/other/go.mod',
       dependencies: [{ name: 'rsc.io/quote', version: 'v9.9.9' }],
     });
@@ -153,8 +153,8 @@ describe('applyUpdates', () => {
       ],
     };
 
-    const hidden = applyUpdates(declared, resolvedProject);
-    const shown = applyUpdates(declared, resolvedProject, { includePrereleases: true });
+    const hidden = mergeResolution(declared, resolvedProject);
+    const shown = mergeResolution(declared, resolvedProject, { includePrereleases: true });
 
     expect(hidden.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBeUndefined();
     expect(shown.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBe('v2.0.0-rc.1');

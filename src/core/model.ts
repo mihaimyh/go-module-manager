@@ -125,7 +125,7 @@ export function assemblePanelModel(
  * project gain their resolved version and candidate, everything else is
  * untouched. Used as lookups arrive one project at a time.
  */
-export function applyUpdates(
+export function mergeResolution(
   model: PanelModel,
   resolved: ResolvedProject,
   options: AssembleOptions = {},
@@ -151,7 +151,7 @@ export function applyUpdates(
         project: row.project,
         manifestPath: row.manifestPath,
         declaredVersion: row.declaredVersion,
-        ...(entry.version === undefined ? {} : { resolvedVersion: entry.version }),
+        resolvedVersion: entry.version,
         transitive: row.transitive,
         ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
         kind: selected.kind,

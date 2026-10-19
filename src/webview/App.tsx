@@ -206,7 +206,8 @@ export function App({ model, progress, onRefresh }: AppProps): JSX.Element {
           <span className="selection-count">
             checking {progress.done}/{progress.total}
           </span>
-        ) : checked.size > 0 ? (
+        ) : null}
+        {checked.size > 0 ? (
           <span className="selection-count">{checked.size} selected</span>
         ) : null}
       </nav>
@@ -378,7 +379,11 @@ function Row({
 
 function Candidate({ row }: { readonly row: DependencyRow }): JSX.Element {
   if (!row.candidate) {
-    return <span className="muted mono">— up to date</span>;
+    return row.resolvedVersion === undefined ? (
+      <span className="muted mono">— not checked yet</span>
+    ) : (
+      <span className="muted mono">— up to date</span>
+    );
   }
   return (
     <>

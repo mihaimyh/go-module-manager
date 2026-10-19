@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { ResolveOptions } from '../../core/adapter';
 import type { ResolvedDependency, ResolvedProject } from '../../core/model';
 import { parseModuleList, type ModuleListEntry } from './goJson';
 import { firstLine, goEnv, type GoRunner } from './runner';
@@ -9,14 +10,8 @@ import { classifyGoUpdate, isPseudoVersion } from './version';
 /** The update lookup hits the network for every module, so it gets more room. */
 const UPDATE_TIMEOUT_MS = 120_000;
 
-export interface ResolveOptions {
-  /** Ignore a settled cache entry; an in-flight lookup is still shared. */
-  readonly fresh?: boolean;
-}
-
 export interface ProjectResolver {
   resolve(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
-  invalidate(): void;
 }
 
 interface CacheEntry {
@@ -58,10 +53,6 @@ export function createProjectResolver(runner: GoRunner): ProjectResolver {
       );
 
       return pending;
-    },
-
-    invalidate() {
-      cache.clear();
     },
   };
 }
