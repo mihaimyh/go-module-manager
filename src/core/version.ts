@@ -34,6 +34,40 @@ export function isPrerelease(version: string): boolean {
 }
 
 /**
+ * A pseudo-version names a commit rather than a release, in one of the three
+ * shapes the go command produces:
+ *   v0.0.0-20240101120000-abcdef123456
+ *   v1.2.3-0.20240101120000-abcdef123456
+ *   v1.2.4-0.20240101120000-abcdef123456
+ */
+const PSEUDO_RE = /^v\d+\.\d+\.\d+-(?:0\.)?\d{14}-[0-9a-f]{12}$/;
+
+export function isPseudoVersion(version: string): boolean {
+  return PSEUDO_RE.test(version);
+}
+
+/**
+ * Inspector copy when the row is a commit pin with no stable candidate
+ * (ADR 0004 / ADR 0012). Silent when Updates already has a target, the row
+ * is replaced, or the pin is not a pseudo-version.
+ */
+export function commitPinUpdateNote(input: {
+  readonly resolvedVersion?: string;
+  readonly declaredVersion: string;
+  readonly candidate?: string;
+  readonly replaced?: boolean;
+}): string | undefined {
+  if (input.replaced === true || input.candidate !== undefined) {
+    return undefined;
+  }
+  const pin = input.resolvedVersion ?? input.declaredVersion;
+  if (!isPseudoVersion(pin)) {
+    return undefined;
+  }
+  return 'No tagged release newer than this commit.';
+}
+
+/**
  * SemVer precedence, including prerelease ordering. Unparseable versions
  * compare equal; callers that need certainty check `parseVersion` first.
  */

@@ -22,6 +22,7 @@ No package browsing, no installing new modules, no running builds or tests, no w
 | Every read and write runs per module with `GOWORK=off` | workspace build list is never shown; divergence is visible, not fixed | ADR 0003 |
 | Candidates are stable versions of the same path | no commit pinning from the UI; major upgrade is a different path | ADR 0004 |
 | The `go` command is the parser | `go` on PATH is mandatory; one spawn per read, cached by file hash | ADR 0005 |
+| `github.com/...` updates come from `go`, not GitHub | Releases are notes only; commit pins wait for tags | ADR 0012 |
 | One panel over every module | actions name their owning `go.mod`; reads are parallel per module | ADR 0006 |
 | Ecosystems sit behind an adapter | core speaks Project/Dependency; Go is the only adapter until 0.1 ships | ADR 0007 |
 

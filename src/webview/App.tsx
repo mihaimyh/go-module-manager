@@ -12,6 +12,7 @@ import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import { sortRows, type SortKey, type SortState } from '../core/sort';
 import {
+  commitPinUpdateNote,
   compareVersions,
   pickerVersions,
   versionApplyOffer,
@@ -974,6 +975,12 @@ function Inspector({
   const needsPreview =
     row.resolvedVersion !== undefined && compareVersions(chosen, row.resolvedVersion) < 0;
   const notes = releaseNotes[`${row.name}@${chosen}`];
+  const pinNote = commitPinUpdateNote({
+    resolvedVersion: row.resolvedVersion,
+    declaredVersion: row.declaredVersion,
+    candidate: row.candidate,
+    replaced: row.replacement !== undefined,
+  });
 
   useEffect(() => {
     if (row.name.startsWith('github.com/')) {
@@ -1040,6 +1047,12 @@ function Inspector({
               : 'managed by replace'}
           </dd>
         </div>
+        {pinNote === undefined ? null : (
+          <div>
+            <dt>Update</dt>
+            <dd className="muted">{pinNote}</dd>
+          </div>
+        )}
         <div>
           <dt>Type</dt>
           <dd className="muted">{row.transitive ? 'indirect dependency' : 'direct dependency'}</dd>

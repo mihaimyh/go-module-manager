@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyUpdate,
+  commitPinUpdateNote,
   isPrerelease,
+  isPseudoVersion,
   parseVersion,
   pickerVersions,
   versionApplyOffer,
@@ -99,5 +101,62 @@ describe('pickerVersions', () => {
       'v1.3.0-rc.1',
       'v1.1.0',
     ]);
+  });
+});
+
+describe('isPseudoVersion', () => {
+  it('recognises the three go shapes', () => {
+    expect(isPseudoVersion('v0.0.0-20170915032832-14c0d48ead0c')).toBe(true);
+    expect(isPseudoVersion('v1.2.3-0.20240101120000-abcdef123456')).toBe(true);
+  });
+
+  it('does not treat a release or prerelease as a pseudo-version', () => {
+    expect(isPseudoVersion('v1.5.2')).toBe(false);
+    expect(isPseudoVersion('v2.0.0-rc.1')).toBe(false);
+  });
+});
+
+describe('commitPinUpdateNote', () => {
+  const pseudo = 'v0.0.0-20170915032832-14c0d48ead0c';
+
+  it('explains a commit pin with no candidate', () => {
+    expect(
+      commitPinUpdateNote({
+        resolvedVersion: pseudo,
+        declaredVersion: pseudo,
+      }),
+    ).toBe('No tagged release newer than this commit.');
+  });
+
+  it('uses the declared version when nothing is resolved yet', () => {
+    expect(
+      commitPinUpdateNote({ declaredVersion: pseudo }),
+    ).toBe('No tagged release newer than this commit.');
+  });
+
+  it('stays silent when a candidate exists or the row is replaced', () => {
+    expect(
+      commitPinUpdateNote({
+        resolvedVersion: pseudo,
+        declaredVersion: pseudo,
+        candidate: 'v1.0.0',
+      }),
+    ).toBeUndefined();
+    expect(
+      commitPinUpdateNote({
+        resolvedVersion: pseudo,
+        declaredVersion: pseudo,
+        replaced: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('stays silent for a tagged pin', () => {
+    expect(
+      commitPinUpdateNote({
+        resolvedVersion: 'v1.5.2',
+        declaredVersion: 'v1.5.2',
+      }),
+    ).toBeUndefined();
   });
 });

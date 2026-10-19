@@ -49,7 +49,7 @@ Selecting a version lower than some requirement asks for. Only achievable by als
 _Avoid_: rollback (implies restoring a previous state)
 
 **Update candidate**:
-A newer version of the same module path that the toolchain reports as available, excluding prereleases and retracted versions.
+A newer version of the same module path that the toolchain reports as available, excluding prereleases and retracted versions. Hosting-site APIs (for example GitHub Releases) are not a source of candidates.
 _Avoid_: latest version, newest version
 
 **Prerelease**:
