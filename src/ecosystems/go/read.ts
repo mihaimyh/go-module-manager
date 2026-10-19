@@ -7,23 +7,29 @@ import {
   type ProjectFailure,
   type ProjectInput,
 } from '../../core/model';
-import { findManifestDirectories } from '../discovery';
 import { failureKindFor, GoCommandError } from './errors';
 import { parseGoModJson, type GoModJson, type GoModRequire } from './goJson';
+import { findProjectDirectories } from './projects';
 import { goEnv, type GoRunner } from './runner';
 
 const READ_TIMEOUT_MS = 60_000;
 
 /**
- * Reads the declared dependencies of every project in a workspace. A project
- * that cannot be read is kept as a summary carrying its failure, so it never
- * hides the healthy projects. Only an empty workspace throws.
+ * Reads the declared dependencies of every project under one or more workspace
+ * folders. A project that cannot be read is kept as a summary carrying its
+ * failure, so it never hides the healthy projects. Only an empty workspace
+ * throws.
  */
 export async function readWorkspace(
-  workspaceRoot: string,
+  workspaceRoots: string | readonly string[],
   runner: GoRunner,
 ): Promise<PanelModel> {
-  const directories = findManifestDirectories(workspaceRoot, 'go.mod');
+  const roots =
+    typeof workspaceRoots === 'string' ? [workspaceRoots] : [...workspaceRoots];
+  const discovered = await Promise.all(
+    roots.map((root) => findProjectDirectories(root, runner)),
+  );
+  const directories = [...new Set(discovered.flat())].sort();
   if (directories.length === 0) {
     throw new GoCommandError('unknown', 'No go.mod found in this workspace.');
   }

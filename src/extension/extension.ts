@@ -21,6 +21,7 @@ import {
 import { failureKindFor } from '../ecosystems/go/errors';
 import { requireLineNumber } from '../ecosystems/go/requireLine';
 import { planBulkUpdate, shouldRetryFailedGroup } from '../core/bulk';
+import { workspaceRoots } from '../core/workspaceRoots';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { fetchReleaseNotes } from '../ecosystems/go/releases';
 import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
@@ -889,36 +890,35 @@ async function fillUpdates(
 async function loadModel(
   context: vscode.ExtensionContext,
 ): Promise<LoadedModel | undefined> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    void vscode.window.showErrorMessage('GMM: open a folder before opening the module panel.');
-    return undefined;
-  }
-
   const developmentRoot =
     context.extensionMode === vscode.ExtensionMode.Development
       ? process.env.GMM_WORKSPACE_ROOT
       : undefined;
-  const root = developmentRoot ?? folder.uri.fsPath;
-  output?.appendLine(`workspace: ${root}`);
+  const roots = workspaceRoots(vscode.workspace.workspaceFolders, developmentRoot);
+  if (roots.length === 0) {
+    void vscode.window.showErrorMessage('GMM: open a folder before opening the module panel.');
+    return undefined;
+  }
+
+  output?.appendLine(`workspace: ${roots.join(', ')}`);
 
   let adapter: EcosystemAdapter | undefined;
 
   try {
     const goPath = vscode.workspace.getConfiguration('gmm').get<string>('goPath') ?? 'go';
-    logGoEnvironment(goPath, root);
-    const [detected] = detectAdapters(root, {
+    logGoEnvironment(goPath, roots[0] ?? process.cwd());
+    const [detected] = detectAdapters(roots, {
       goPath,
       advisories: ensureAdvisorySource(context, goPath),
     });
     adapter = detected;
     if (!adapter) {
       void vscode.window.showErrorMessage(
-        `GMM: no supported manifest under ${root}. Searched six levels deep, skipping node_modules and dot-folders.`,
+        'GMM: no supported manifest in the workspace. Checked go.work use dirs and walked six levels, skipping node_modules and dot-folders.',
       );
       return undefined;
     }
-    return { adapter, model: await adapter.read(root) };
+    return { adapter, model: await adapter.read(roots) };
   } catch (error) {
     const message = messageOf(error);
     const kind = (error as { kind?: FailureKind } | null)?.kind;
@@ -929,7 +929,7 @@ async function loadModel(
     }
 
     void vscode.window.showErrorMessage(
-      `GMM: could not read the workspace at ${root}. ${message}`,
+      `GMM: could not read the workspace. ${message}`,
     );
     return undefined;
   }

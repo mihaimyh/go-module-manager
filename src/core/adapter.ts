@@ -56,7 +56,8 @@ export interface EcosystemAdapter {
   readonly id: string;
   readonly label: string;
   readonly manifestFile: string;
-  read(workspaceRoot: string): Promise<PanelModel>;
+  /** One folder path, or every VS Code workspace folder. */
+  read(workspaceRoots: string | readonly string[]): Promise<PanelModel>;
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
   /** Recovery for a missing lock entry; bounded to the owning project. */
   repair?(manifestPath: string): Promise<void>;

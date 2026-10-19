@@ -68,6 +68,32 @@ describe('detectAdapters', () => {
     expect(findManifestDirectories(root, 'go.mod')).toEqual([module]);
   });
 
+  it('detects Go from a go.work even when the walk would miss nested modules', () => {
+    const root = newWorkspace();
+    const module = join(root, 'api');
+    const nested = join(module, 'examples', 'demo');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(root, 'go.work'), 'go 1.21\nuse ./api/examples/demo\n');
+    writeFileSync(join(module, 'go.mod'), 'module example.com/api\n');
+    writeFileSync(join(nested, 'go.mod'), 'module example.com/demo\n');
+
+    expect(detectAdapters(root).map((adapter) => adapter.id)).toEqual(['go']);
+  });
+
+  it('detects Go when any workspace folder has a manifest', () => {
+    const empty = newWorkspace();
+    mkdirSync(join(empty, 'docs'));
+    const other = mkdtempSync(join(tmpdir(), 'gmm-detect-b-'));
+    mkdirSync(join(other, 'api'), { recursive: true });
+    writeFileSync(join(other, 'api', 'go.mod'), 'module example.com/api\n');
+
+    try {
+      expect(detectAdapters([empty, other]).map((adapter) => adapter.id)).toEqual(['go']);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
   it('reuses the adapter so its cache and undo snapshot survive a reload', () => {
     const root = newWorkspace();
     const module = join(root, 'api');

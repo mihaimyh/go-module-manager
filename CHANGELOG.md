@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.20
+
+### Added
+
+- Discovery prefers `go.work` `use` directories (including nested modules the tree walk would miss), then falls back to the existing walk.
+- Every VS Code workspace folder is loaded, not only the first.
+
 ## 0.1.19
 
 ### Changed

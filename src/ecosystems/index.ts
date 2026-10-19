@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { EcosystemAdapter } from '../core/adapter';
 import { findManifestDirectories } from './discovery';
 import type { AdvisorySource } from './go/advisory';
@@ -37,16 +39,28 @@ function adapterFor(
   return adapter;
 }
 
-/** Finds every ecosystem with a manifest by walking the tree (ADR 0009). */
+/**
+ * Finds every ecosystem with a project under any of the workspace folders.
+ * Go is detected from a go.work or from the ADR 0009 tree walk.
+ */
 export function detectAdapters(
-  workspaceRoot: string,
+  workspaceRoots: string | readonly string[],
   options: DetectOptions = {},
 ): readonly EcosystemAdapter[] {
+  const roots =
+    typeof workspaceRoots === 'string' ? [workspaceRoots] : [...workspaceRoots];
   const candidates: readonly EcosystemAdapter[] = [
     adapterFor(options.goPath ?? 'go', options.advisories),
   ];
 
-  return candidates.filter(
-    (adapter) => findManifestDirectories(workspaceRoot, adapter.manifestFile).length > 0,
+  return candidates.filter((adapter) =>
+    roots.some((root) => hasProjects(root, adapter.manifestFile)),
   );
+}
+
+function hasProjects(workspaceRoot: string, manifestFile: string): boolean {
+  if (manifestFile === 'go.mod' && existsSync(join(workspaceRoot, 'go.work'))) {
+    return true;
+  }
+  return findManifestDirectories(workspaceRoot, manifestFile).length > 0;
 }

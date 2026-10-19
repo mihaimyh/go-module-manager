@@ -113,6 +113,30 @@ describe('reading declared dependencies', () => {
     );
   });
 
+  it('aggregates projects from every workspace folder', async () => {
+    const firstRoot = newWorkspace();
+    const first = moduleAt(firstRoot, 'a');
+    const secondRoot = mkdtempSync(join(tmpdir(), 'gmm-read-b-'));
+    moduleAt(secondRoot, 'b');
+    const runner = new FakeRunner((cwd) => ({
+      stdout: goModJson(cwd === first ? 'example.com/a' : 'example.com/b', [
+        { path: 'rsc.io/quote', version: 'v1.5.1' },
+      ]),
+      stderr: '',
+      exitCode: 0,
+    }));
+
+    try {
+      const model = await createGoAdapter(runner).read([firstRoot, secondRoot]);
+      expect(model.projects.map((entry) => entry.name).sort()).toEqual([
+        'example.com/a',
+        'example.com/b',
+      ]);
+    } finally {
+      rmSync(secondRoot, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a failed project visible beside the healthy ones', async () => {
     const root = newWorkspace();
     const healthy = moduleAt(root, 'a');

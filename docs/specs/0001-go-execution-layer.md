@@ -140,7 +140,7 @@ One opt-in smoke test, gated by an environment flag, creates a temporary module,
 - Downgrades below the resolved version.
 - The Dart adapter.
 - Marketplace publishing, icons, and the final product name.
-- Multi-root workspaces: the panel keeps using the first workspace folder.
+- Multi-root workspaces were later enabled (ADR 0011); discovery now uses every folder.
 - Persisting undo across sessions, disk caches, and background refresh timers.
 
 ## Further Notes
