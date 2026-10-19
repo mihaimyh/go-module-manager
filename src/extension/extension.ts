@@ -6,7 +6,7 @@ import { GmmPanel } from './panel';
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('gmm.openPanel', async () => {
-      const model = await loadModel();
+      const model = await loadModel(context);
       if (!model) {
         return;
       }
@@ -20,17 +20,23 @@ export function deactivate(): void {
 }
 
 /**
- * `GMM_WORKSPACE_ROOT` lets the launch configuration point at a sample
- * workspace while developing the extension itself.
+ * `GMM_WORKSPACE_ROOT` points at a sample workspace while developing the
+ * extension itself. It is ignored in a published build.
  */
-async function loadModel(): Promise<PanelModel | undefined> {
+async function loadModel(
+  context: vscode.ExtensionContext,
+): Promise<PanelModel | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage('GMM: open a folder before opening the module panel.');
     return undefined;
   }
 
-  const root = process.env.GMM_WORKSPACE_ROOT ?? folder.uri.fsPath;
+  const developmentRoot =
+    context.extensionMode === vscode.ExtensionMode.Development
+      ? process.env.GMM_WORKSPACE_ROOT
+      : undefined;
+  const root = developmentRoot ?? folder.uri.fsPath;
 
   try {
     const [adapter] = detectAdapters(root);

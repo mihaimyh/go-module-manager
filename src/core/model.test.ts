@@ -27,11 +27,11 @@ function resolved(entries: readonly ResolvedDependency[]): Map<string, readonly 
 }
 
 describe('assemblePanelModel', () => {
-  it('falls back to the declared version when nothing resolved it', () => {
+  it('leaves the resolved version unknown until the build list is read', () => {
     const model = assemblePanelModel(project([{ name: 'rsc.io/quote', version: 'v1.5.1' }]), new Map());
 
     expect(model.rows[0]?.declaredVersion).toBe('v1.5.1');
-    expect(model.rows[0]?.resolvedVersion).toBe('v1.5.1');
+    expect(model.rows[0]?.resolvedVersion).toBeUndefined();
     expect(model.rows[0]?.candidate).toBeUndefined();
     expect(model.rows[0]?.kind).toBe('none');
   });

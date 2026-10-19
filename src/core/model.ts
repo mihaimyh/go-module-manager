@@ -37,7 +37,8 @@ export interface DependencyRow {
   readonly project: string;
   readonly manifestPath: string;
   readonly declaredVersion: string;
-  readonly resolvedVersion: string;
+  /** Absent until the build list has been read; never guessed from the manifest. */
+  readonly resolvedVersion?: string;
   readonly transitive: boolean;
   readonly candidate?: string;
   readonly kind: UpdateKind;
@@ -78,7 +79,7 @@ export function assemblePanelModel(
 
     for (const dependency of project.dependencies) {
       const entry = byName.get(dependency.name);
-      const resolvedVersion = entry?.version ?? dependency.declaredVersion;
+      const resolvedVersion = entry?.version;
 
       let candidate = entry?.candidate;
       let kind: UpdateKind = entry?.kind ?? 'none';
@@ -99,7 +100,7 @@ export function assemblePanelModel(
         project: project.name,
         manifestPath: project.manifestPath,
         declaredVersion: dependency.declaredVersion,
-        resolvedVersion,
+        ...(resolvedVersion === undefined ? {} : { resolvedVersion }),
         transitive: dependency.transitive,
         ...(candidate === undefined ? {} : { candidate }),
         kind,
@@ -115,12 +116,13 @@ export function assemblePanelModel(
     return left.name.localeCompare(right.name);
   });
 
-  return {
-    projects: projects.map((project) => ({
+  const summaries = projects
+    .map((project) => ({
       name: project.name,
       manifestPath: project.manifestPath,
       dependencyCount: project.dependencies.length,
-    })),
-    rows,
-  };
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  return { projects: summaries, rows };
 }

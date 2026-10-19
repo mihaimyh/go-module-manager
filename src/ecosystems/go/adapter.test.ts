@@ -78,11 +78,12 @@ describe('reading declared dependencies', () => {
       ['rsc.io/sampler', 'v1.3.0', true],
     ]);
     expect(model.rows.every((row) => row.candidate === undefined)).toBe(true);
+    expect(model.rows.every((row) => row.resolvedVersion === undefined)).toBe(true);
 
     expect(runner.calls).toHaveLength(1);
     expect(runner.calls[0]?.args).toEqual(['mod', 'edit', '-json']);
     expect(runner.calls[0]?.options.cwd).toBe(project);
-    expect(runner.calls[0]?.options.env.GOWORK).toBe('off');
+    expect(runner.calls[0]?.options.env).toMatchObject({ ...process.env, GOWORK: 'off' });
   });
 
   it('aggregates every project in the workspace', async () => {

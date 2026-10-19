@@ -7,7 +7,7 @@ import {
 } from '../../core/model';
 import { findManifestDirectories } from '../discovery';
 import { parseGoModJson, type GoModJson } from './goJson';
-import type { GoRunner } from './runner';
+import { goEnv, type GoRunner } from './runner';
 
 const READ_TIMEOUT_MS = 60_000;
 
@@ -27,7 +27,7 @@ export async function readWorkspace(
       directory,
       result: await runner.run(['mod', 'edit', '-json'], {
         cwd: directory,
-        env: { ...process.env, GOWORK: 'off' },
+        env: goEnv(),
         timeoutMs: READ_TIMEOUT_MS,
       }),
     })),

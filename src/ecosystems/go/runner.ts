@@ -28,6 +28,14 @@ export class GoNotFoundError extends Error {
   }
 }
 
+/**
+ * Every go invocation gets the user's environment plus workspace mode off, so a
+ * workspace file never changes which graph a read or a write touches.
+ */
+export function goEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...env, GOWORK: 'off' };
+}
+
 export const execGoRunner: GoRunner = {
   run(args, options) {
     return new Promise<RunResult>((resolve, reject) => {

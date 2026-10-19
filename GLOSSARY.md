@@ -21,7 +21,7 @@ A requirement whose module provides at least one package imported by the main mo
 
 **Indirect requirement**:
 A requirement marked `// indirect` because no package from that module is imported by the main module's own packages; it is needed to build packages of other requirements.
-_Avoid_: transitive dependency (a module can be imported transitively and still be direct)
+_Avoid_: transitive dependency as a synonym in Go (a module can be imported transitively and still be a direct requirement)
 
 **Build list**:
 The modules and versions the go command will actually use, computed from every requirement.

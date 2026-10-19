@@ -322,8 +322,18 @@ function Row({
       <td className="col-version mono muted" title={row.declaredVersion}>
         {row.declaredVersion}
       </td>
-      <td className="col-version mono muted" title={row.resolvedVersion}>
-        {row.resolvedVersion}
+      <td className="col-version mono muted" title={row.resolvedVersion ?? 'not resolved yet'}>
+        {row.resolvedVersion === undefined ? (
+          '—'
+        ) : row.resolvedVersion === row.declaredVersion ? (
+          row.resolvedVersion
+        ) : (
+          <>
+            <span className="muted">{row.declaredVersion}</span>
+            {' → '}
+            {row.resolvedVersion}
+          </>
+        )}
       </td>
       <td className="col-update">
         <Candidate row={row} />
@@ -428,7 +438,7 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
         </div>
         <div>
           <dt>Selected</dt>
-          <dd className="mono">{row.resolvedVersion}</dd>
+          <dd className="mono">{row.resolvedVersion ?? '—'}</dd>
         </div>
         <div>
           <dt>Candidate</dt>
