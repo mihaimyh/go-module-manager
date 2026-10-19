@@ -1,4 +1,4 @@
-import type { AdvisoryTarget } from '../../core/model';
+import { advisoryKey, type AdvisoryTarget } from '../../core/model';
 import {
   matchAdvisories,
   type AdvisoryDocument,
@@ -10,6 +10,7 @@ import { goEnv, type GoRunner } from './runner';
 const INDEX_DB_URL = 'https://vuln.go.dev/index/db.json';
 const INDEX_MODULES_URL = 'https://vuln.go.dev/index/modules.json';
 const DOCUMENT_URL = 'https://vuln.go.dev/ID/';
+const FETCH_TIMEOUT_MS = 30_000;
 
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -40,9 +41,10 @@ export interface AdvisorySourceDeps {
 }
 
 /**
- * The live advisory database: one `db.json` check, one `modules.json` fetch per
- * TTL (or per database change), and one document per matched advisory. Private
- * module paths never leave the machine.
+ * The live advisory database: one `db.json` check per lookup, one
+ * `modules.json` fetch per TTL or database change, and one document per
+ * advisory we actually matched. Documents for a new dependency are fetched even
+ * when the index is still cached.
  */
 export function createLiveAdvisorySource(deps: AdvisorySourceDeps): AdvisorySource {
   const now = deps.now ?? Date.now;
@@ -57,14 +59,15 @@ export function createLiveAdvisorySource(deps: AdvisorySourceDeps): AdvisorySour
       env: goEnv(),
       timeoutMs: 10_000,
     });
-    patterns =
-      result.exitCode === 0
-        ? result.stdout
-            .split(/\r?\n/)
-            .flatMap((line) => line.split(','))
-            .map((pattern) => pattern.trim())
-            .filter((pattern) => pattern !== '')
-        : [];
+    // Failing closed: an unreadable configuration must not leak private paths.
+    if (result.exitCode !== 0) {
+      throw new Error('GMM could not read GOPRIVATE/GONOPROXY from go env.');
+    }
+    patterns = result.stdout
+      .split(/\r?\n/)
+      .flatMap((line) => line.split(','))
+      .map((pattern) => pattern.trim())
+      .filter((pattern) => pattern !== '');
     return patterns;
   };
 
@@ -76,7 +79,7 @@ export function createLiveAdvisorySource(deps: AdvisorySourceDeps): AdvisorySour
         if (!isPrivate(target.name, privateGlobs)) {
           return true;
         }
-        unchecked.add(`${target.name}@${target.version}`);
+        unchecked.add(advisoryKey(target.name, target.version));
         return false;
       });
 
@@ -97,37 +100,42 @@ export function createLiveAdvisorySource(deps: AdvisorySourceDeps): AdvisorySour
       }
 
       const fresh = options.fresh === true;
-      const age = cached === undefined ? Number.POSITIVE_INFINITY : now() - Date.parse(cached.fetchedAt);
-      if (cached !== undefined && !fresh && cached.dbModified === dbModified && age < CACHE_TTL_MS) {
-        return report(cached, publicTargets, unchecked, false);
-      }
+      const age =
+        cached === undefined ? Number.POSITIVE_INFINITY : now() - Date.parse(cached.fetchedAt);
+      const reusable =
+        cached !== undefined && !fresh && cached.dbModified === dbModified && age < CACHE_TTL_MS;
 
       try {
-        const index = readIndex(await deps.fetchJson(INDEX_MODULES_URL));
+        const index = reusable ? cached.index : readIndex(await deps.fetchJson(INDEX_MODULES_URL));
         const documents = { ...(cached?.documents ?? {}) };
+        let addedDocument = false;
 
         for (const target of publicTargets) {
           for (const entry of index[target.name] ?? []) {
             if (documents[entry.id] !== undefined) {
               continue;
             }
-            const document = readDocument(
-              await deps.fetchJson(`${DOCUMENT_URL}${entry.id}.json`),
-              target.name,
-            );
+            const document = readDocument(await deps.fetchJson(`${DOCUMENT_URL}${entry.id}.json`));
             if (document !== undefined) {
               documents[entry.id] = document;
+              addedDocument = true;
             }
           }
         }
 
-        const next: CachedAdvisoryDb = {
-          fetchedAt: new Date(now()).toISOString(),
-          dbModified,
-          index,
-          documents,
-        };
-        await deps.cache.write(next);
+        const next: CachedAdvisoryDb =
+          reusable && !addedDocument
+            ? cached
+            : {
+                fetchedAt: reusable ? cached.fetchedAt : new Date(now()).toISOString(),
+                dbModified,
+                index,
+                documents,
+              };
+
+        if (next !== cached) {
+          await deps.cache.write(next);
+        }
         return report(next, publicTargets, unchecked, false);
       } catch (error) {
         if (cached !== undefined) {
@@ -153,14 +161,31 @@ function report(
   };
 }
 
+/**
+ * Go's GOPRIVATE matching is prefix-based with path globs: `github.com/acme/*`
+ * also covers `github.com/acme/internal/sub`.
+ */
 function isPrivate(modulePath: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => {
-    const source = pattern
-      .split('*')
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('[^/]*');
-    return new RegExp(`^${source}`).test(modulePath);
-  });
+  const parts = modulePath.split('/');
+  const prefixes = parts.map((_, index) => parts.slice(0, index + 1).join('/'));
+  return patterns.some((pattern) =>
+    prefixes.some((prefix) => globMatches(pattern, prefix)),
+  );
+}
+
+function globMatches(pattern: string, value: string): boolean {
+  const source = [...pattern]
+    .map((char) => {
+      if (char === '*') {
+        return '[^/]*';
+      }
+      if (char === '?') {
+        return '[^/]';
+      }
+      return char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    })
+    .join('');
+  return new RegExp(`^${source}$`).test(value);
 }
 
 function readDbModified(value: unknown): string {
@@ -190,28 +215,16 @@ function readIndex(value: unknown): Record<string, readonly IndexEntry[]> {
       if (typeof id !== 'string' || typeof modified !== 'string') {
         return [];
       }
-      return [
-        {
-          id,
-          modified,
-          ...(typeof fixed === 'string' ? { fixed } : {}),
-        },
-      ];
+      return [{ id, modified, ...(typeof fixed === 'string' ? { fixed } : {}) }];
     });
   }
   return index;
 }
 
-function readDocument(
-  value: unknown,
-  modulePath: string,
-): AdvisoryDocument | undefined {
+/** Keeps every range in the document, so one cached document serves all modules. */
+function readDocument(value: unknown): AdvisoryDocument | undefined {
   const record = value as
-    | {
-        id?: unknown;
-        summary?: unknown;
-        affected?: unknown;
-      }
+    | { id?: unknown; summary?: unknown; affected?: unknown }
     | null;
   if (record === null || typeof record.id !== 'string') {
     return undefined;
@@ -219,31 +232,30 @@ function readDocument(
 
   const ranges = Array.isArray(record.affected)
     ? record.affected.flatMap((entry) => {
-        const packageName = (entry as { package?: { name?: unknown } } | null)?.package
-          ?.name;
-        if (packageName !== modulePath) {
+        const module = (entry as { package?: { name?: unknown } } | null)?.package?.name;
+        if (typeof module !== 'string') {
           return [];
         }
-        const events = (entry as { ranges?: unknown }).ranges;
-        if (!Array.isArray(events)) {
+        const list = (entry as { ranges?: unknown } | null)?.ranges;
+        if (!Array.isArray(list)) {
           return [];
         }
-        return events.flatMap((range) => {
-          const list = (range as { events?: unknown } | null)?.events;
-          if (!Array.isArray(list)) {
+        return list.flatMap((range) => {
+          const events = (range as { events?: unknown } | null)?.events;
+          if (!Array.isArray(events)) {
             return [];
           }
-          const introduced = list.find(
+          const introduced = events.find(
             (event): event is { introduced: string } =>
               typeof (event as { introduced?: unknown }).introduced === 'string',
           )?.introduced;
-          const fixed = list.find(
+          const fixed = events.find(
             (event): event is { fixed: string } =>
               typeof (event as { fixed?: unknown }).fixed === 'string',
           )?.fixed;
           return [
             {
-              module: modulePath,
+              module,
               ...(introduced === undefined ? {} : { introduced }),
               ...(fixed === undefined ? {} : { fixed }),
             },
@@ -258,3 +270,5 @@ function readDocument(
     ranges,
   };
 }
+
+export { FETCH_TIMEOUT_MS };

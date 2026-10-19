@@ -14,7 +14,7 @@ import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { createExecGoRunner } from '../ecosystems/go/runner';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
-import { createLiveAdvisorySource } from '../ecosystems/go/advisorySource';
+import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
 import { FileAdvisoryCache } from './advisoryCache';
 import { GmmPanel } from './panel';
 
@@ -27,6 +27,7 @@ let current: LoadedModel | undefined;
 let refreshTimer: NodeJS.Timeout | undefined;
 let updating = false;
 let advisorySource: AdvisorySource | undefined;
+let advisorySourcePath: string | undefined;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 
@@ -546,14 +547,15 @@ function failureKindOf(error: unknown): FailureKind {
   return kind ?? 'unknown';
 }
 
-/** One source per session: it owns the GOPRIVATE cache and the in-memory index. */
+/** One source per session and toolchain path: it owns the index and the cache. */
 function ensureAdvisorySource(
   context: vscode.ExtensionContext,
   goPath: string,
 ): AdvisorySource {
-  if (advisorySource !== undefined) {
+  if (advisorySource !== undefined && advisorySourcePath === goPath) {
     return advisorySource;
   }
+  advisorySourcePath = goPath;
   advisorySource = createLiveAdvisorySource({
     fetchJson,
     cache: new FileAdvisoryCache(
@@ -565,7 +567,7 @@ function ensureAdvisorySource(
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`${url} returned ${response.status}`);
   }
