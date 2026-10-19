@@ -284,6 +284,14 @@ input[type='checkbox'] {
   color: var(--gmm-muted);
 }
 
+.tabs .button.compact {
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 8px;
+  font-size: 11px;
+  align-self: center;
+}
+
 /* Failures */
 
 .failures {

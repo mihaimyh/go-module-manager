@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { RecoveryAction, ResolveProgress } from '../core/messages';
+import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
@@ -39,6 +39,8 @@ interface AppProps {
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+  readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
+  readonly onTidy: (manifests: readonly string[]) => void;
 }
 
 export function App({
@@ -47,6 +49,8 @@ export function App({
   onRefresh,
   onRecover,
   onUpdate,
+  onBulkUpdate,
+  onTidy,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('dependencies');
   const [query, setQuery] = useState('');
@@ -96,6 +100,14 @@ export function App({
     rows.find((row) => row.candidate !== undefined)?.id ??
     rows[0]?.id;
   const selected = rows.find((row) => row.id === activeId);
+  const selectedRows = rows.filter((row) => checked.has(row.id));
+  const updatable = selectedRows.filter((row) => row.candidate !== undefined);
+  const tidyTargets = (() => {
+    if (selectedRows.length > 0) {
+      return [...new Set(selectedRows.map((row) => row.manifestPath))];
+    }
+    return selected === undefined ? [] : [selected.manifestPath];
+  })();
 
   if (!model) {
     return <p className="empty">Reading the workspace…</p>;
@@ -186,8 +198,8 @@ export function App({
           <button
             type="button"
             className="button secondary"
-            disabled
-            title="Wires up with the go runner in the next step"
+            onClick={() => onTidy(tidyTargets)}
+            title="Run go mod tidy in the selected projects"
           >
             <TerminalIcon />
             go mod tidy
@@ -234,6 +246,25 @@ export function App({
         ) : null}
         {checked.size > 0 ? (
           <span className="selection-count">{checked.size} selected</span>
+        ) : null}
+        {checked.size > 0 ? (
+          <button
+            type="button"
+            className="button primary compact"
+            disabled={updatable.length === 0}
+            title={
+              updatable.length === 0
+                ? 'Nothing in this selection has an update'
+                : `Update ${updatable.length} dependencies`
+            }
+            onClick={() =>
+              onBulkUpdate(
+                updatable.map((row) => ({ manifestPath: row.manifestPath, name: row.name })),
+              )
+            }
+          >
+            Update selected ({updatable.length})
+          </button>
         ) : null}
       </nav>
 

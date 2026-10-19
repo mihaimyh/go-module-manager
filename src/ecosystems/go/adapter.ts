@@ -3,6 +3,7 @@ import { downloadModules } from './download';
 import { readWorkspace } from './read';
 import { createProjectResolver } from './resolve';
 import { createExecGoRunner, type GoRunner } from './runner';
+import { tidyProject } from './tidy';
 import { createUpdater } from './update';
 
 export function createGoAdapter(runner: GoRunner): EcosystemAdapter {
@@ -18,6 +19,7 @@ export function createGoAdapter(runner: GoRunner): EcosystemAdapter {
     repair: (manifestPath) => downloadModules(manifestPath, runner),
     update: (request) => updater.update(request),
     undo: (manifestPath) => updater.undo(manifestPath),
+    tidy: (manifestPath) => tidyProject(manifestPath, runner),
     toolchainUrl: 'https://go.dev/dl/',
   };
 }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import type { EcosystemAdapter, UpdateRequest } from '../core/adapter';
-import type { RecoveryAction } from '../core/messages';
+import type { EcosystemAdapter, UpdateRequest, UpdateResult } from '../core/adapter';
+import { planBulkUpdate } from '../core/bulk';
+import type { DependencySelection, RecoveryAction } from '../core/messages';
 import { mergeFailure, mergeRowFailure, type FailureKind, type PanelModel } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
@@ -49,6 +50,12 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
       },
       onUpdate: (request) => {
         void updateDependency(context, request);
+      },
+      onBulkUpdate: (selection) => {
+        void bulkUpdate(context, selection);
+      },
+      onTidy: (manifests) => {
+        void tidyProjects(context, manifests);
       },
     },
   );
@@ -134,6 +141,146 @@ function openToolchainPage(adapter: EcosystemAdapter): void {
 
 let updating = false;
 
+async function bulkUpdate(
+  context: vscode.ExtensionContext,
+  selection: readonly DependencySelection[],
+): Promise<void> {
+  const loaded = current;
+  const update = loaded?.adapter.update;
+  if (loaded === undefined || update === undefined || updating) {
+    return;
+  }
+
+  const rows = loaded.model.rows.filter((row) =>
+    selection.some(
+      (entry) => entry.manifestPath === row.manifestPath && entry.name === row.name,
+    ),
+  );
+  const groups = planBulkUpdate(rows);
+  if (groups.length === 0) {
+    void vscode.window.showInformationMessage(
+      'GMM: nothing in that selection has an update to move to.',
+    );
+    return;
+  }
+
+  const files = groups.map((group) => group.manifestPath).join('\n');
+  const confirmed = await vscode.window.showWarningMessage(
+    `Update dependencies in ${groups.length} go.mod file(s)?\n${files}`,
+    { modal: true },
+    'Update',
+  );
+  if (confirmed !== 'Update') {
+    return;
+  }
+
+  updating = true;
+  try {
+    const results: UpdateResult[] = [];
+    for (const group of groups) {
+      try {
+        results.push(await update({ manifestPath: group.manifestPath, changes: group.changes }));
+      } catch (error) {
+        showFailure(group.manifestPath, error);
+      }
+    }
+
+    await refresh(context, false);
+
+    const failed = results.filter((result) => result.status === 'failed');
+    if (failed.length > 0 && current !== undefined) {
+      let model = current.model;
+      for (const result of failed) {
+        for (const change of result.changes) {
+          model = mergeRowFailure(
+            model,
+            result.manifestPath,
+            change.name,
+            result.message ?? 'go get failed',
+          );
+        }
+      }
+      current = { ...current, model };
+      GmmPanel.update(model);
+      void vscode.window.showErrorMessage(
+        `GMM: ${failed.length} of ${results.length} project updates failed.`,
+      );
+    }
+
+    const succeeded = results.filter((result) => result.status === 'updated');
+    if (succeeded.length === 0) {
+      return;
+    }
+
+    const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
+    const choice = await vscode.window.showInformationMessage(
+      `GMM: ${moved} dependencies updated in ${succeeded.length} project(s).`,
+      'Undo',
+    );
+    const undo = loaded.adapter.undo;
+    if (choice !== 'Undo' || undo === undefined) {
+      return;
+    }
+
+    for (const result of succeeded) {
+      try {
+        await undo(result.manifestPath);
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `GMM: undo failed for ${result.manifestPath}. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    await refresh(context, false);
+  } finally {
+    updating = false;
+  }
+}
+
+async function tidyProjects(
+  context: vscode.ExtensionContext,
+  manifests: readonly string[],
+): Promise<void> {
+  const loaded = current;
+  const tidy = loaded?.adapter.tidy;
+  if (loaded === undefined || tidy === undefined || updating) {
+    return;
+  }
+
+  const targets =
+    manifests.length > 0
+      ? [...new Set(manifests)]
+      : loaded.model.projects.map((project) => project.manifestPath);
+  if (targets.length === 0) {
+    return;
+  }
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `Run go mod tidy in ${targets.length} project(s)? This removes requirements nothing imports yet.\n${targets.join('\n')}`,
+    { modal: true },
+    'Run tidy',
+  );
+  if (confirmed !== 'Run tidy') {
+    return;
+  }
+
+  updating = true;
+  try {
+    for (const manifestPath of targets) {
+      try {
+        await tidy(manifestPath);
+      } catch (error) {
+        showFailure(manifestPath, error);
+      }
+    }
+    await refresh(context, false);
+  } finally {
+    updating = false;
+  }
+}
+
 async function updateDependency(
   context: vscode.ExtensionContext,
   request: UpdateRequest,
@@ -164,32 +311,33 @@ async function updateDependency(
 
     if (outcome.status === 'failed') {
       const message = outcome.message ?? 'go get failed';
-      current = {
-        ...fresh,
-        model: mergeRowFailure(
-          fresh.model,
-          request.manifestPath,
-          request.name,
-          message,
-        ),
-      };
+      let model = fresh.model;
+      for (const change of outcome.changes) {
+        model = mergeRowFailure(model, request.manifestPath, change.name, message);
+      }
+      current = { ...fresh, model };
       GmmPanel.update(current.model);
       return;
     }
 
     // Report what the toolchain resolved, not what was requested.
-    const resolved = fresh.model.rows.find(
-      (row) => row.manifestPath === request.manifestPath && row.name === request.name,
-    )?.resolvedVersion;
+    const change = request.changes[0];
+    const resolved =
+      change === undefined
+        ? undefined
+        : fresh.model.rows.find(
+            (row) =>
+              row.manifestPath === request.manifestPath && row.name === change.name,
+          )?.resolvedVersion;
     const undo = loaded.adapter.undo;
-    if (undo === undefined) {
+    if (undo === undefined || change === undefined) {
       return;
     }
 
     const choice = await vscode.window.showInformationMessage(
       resolved === undefined
-        ? `GMM: ${request.name} updated`
-        : `GMM: ${request.name} resolved to ${resolved}`,
+        ? `GMM: ${change.name} updated`
+        : `GMM: ${change.name} resolved to ${resolved}`,
       'Undo',
     );
     if (choice !== 'Undo') {

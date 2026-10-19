@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { UpdateOutcome, UpdateRequest } from '../../core/adapter';
+import type { UpdateRequest, UpdateResult } from '../../core/adapter';
 import { firstLine, goEnv, type GoRunner } from './runner';
 
 const UPDATE_TIMEOUT_MS = 120_000;
@@ -12,13 +12,13 @@ interface Snapshot {
 }
 
 export interface GoUpdater {
-  update(request: UpdateRequest): Promise<UpdateOutcome>;
+  update(request: UpdateRequest): Promise<UpdateResult>;
   undo(manifestPath: string): Promise<boolean>;
 }
 
 /**
- * Runs `go get` in the owning project and keeps exactly one snapshot per
- * project, taken before that write. Undo is in-memory and session-only.
+ * Runs one `go get` per project for the whole group, keeping exactly one
+ * snapshot per project, taken before that write. Undo is session-only.
  */
 export function createUpdater(runner: GoRunner): GoUpdater {
   const snapshots = new Map<string, Snapshot>();
@@ -27,25 +27,28 @@ export function createUpdater(runner: GoRunner): GoUpdater {
     async update(request) {
       snapshots.set(request.manifestPath, snapshotOf(request.manifestPath));
 
-      const result = await runner.run(
-        ['get', `${request.name}@${request.version}`],
-        {
-          cwd: dirname(request.manifestPath),
-          env: goEnv(),
-          timeoutMs: UPDATE_TIMEOUT_MS,
-        },
-      );
+      const targets = request.changes.map((change) => `${change.name}@${change.version}`);
+      const result = await runner.run(['get', ...targets], {
+        cwd: dirname(request.manifestPath),
+        env: goEnv(),
+        timeoutMs: UPDATE_TIMEOUT_MS,
+      });
 
       if (result.exitCode !== 0) {
         snapshots.delete(request.manifestPath);
         return {
-          ...request,
+          manifestPath: request.manifestPath,
+          changes: request.changes,
           status: 'failed',
           message: firstLine(result.stderr),
         };
       }
 
-      return { ...request, status: 'updated' };
+      return {
+        manifestPath: request.manifestPath,
+        changes: request.changes,
+        status: 'updated',
+      };
     },
 
     async undo(manifestPath) {

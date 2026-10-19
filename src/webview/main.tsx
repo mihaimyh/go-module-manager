@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { HostToWebview, RecoveryAction, ResolveProgress, WebviewToHost } from '../core/messages';
+import type { DependencySelection, HostToWebview, RecoveryAction, ResolveProgress, WebviewToHost } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { App } from './App';
 import { vscode } from './vscode';
@@ -41,6 +41,16 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onBulkUpdate = (selection: readonly DependencySelection[]): void => {
+    const message: WebviewToHost = { type: 'bulk-update', selection };
+    vscode.postMessage(message);
+  };
+
+  const onTidy = (manifests: readonly string[]): void => {
+    const message: WebviewToHost = { type: 'tidy', manifests };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -48,6 +58,8 @@ function Root(): JSX.Element {
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}
+      onBulkUpdate={onBulkUpdate}
+      onTidy={onTidy}
     />
   );
 }

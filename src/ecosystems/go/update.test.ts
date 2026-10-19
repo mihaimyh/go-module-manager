@@ -38,22 +38,44 @@ function module(goSum: string | undefined): string {
   return manifestPath;
 }
 
-describe('updating one dependency', () => {
+describe('updating dependencies', () => {
   it('runs one go get in the owning project with workspace mode off', async () => {
     const manifestPath = module('rsc.io/quote v1.5.1 h1:old=\n');
     const runner = new FakeRunner(() => ({ stdout: '', stderr: '', exitCode: 0 }));
 
-    const outcome = await createUpdater(runner).update({
+    const result = await createUpdater(runner).update({
       manifestPath,
-      name: 'rsc.io/quote',
-      version: 'v1.5.2',
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
     });
 
-    expect(outcome).toMatchObject({ status: 'updated', name: 'rsc.io/quote', version: 'v1.5.2' });
+    expect(result).toMatchObject({
+      status: 'updated',
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
+    });
     expect(runner.calls).toHaveLength(1);
     expect(runner.calls[0]?.args).toEqual(['get', 'rsc.io/quote@v1.5.2']);
     expect(runner.calls[0]?.options.cwd).toBe(dirname(manifestPath));
     expect(runner.calls[0]?.options.env.GOWORK).toBe('off');
+  });
+
+  it('moves a whole group with one command', async () => {
+    const manifestPath = module('rsc.io/quote v1.5.1 h1:old=\n');
+    const runner = new FakeRunner(() => ({ stdout: '', stderr: '', exitCode: 0 }));
+
+    await createUpdater(runner).update({
+      manifestPath,
+      changes: [
+        { name: 'rsc.io/quote', version: 'v1.5.2' },
+        { name: 'rsc.io/sampler', version: 'v1.99.99' },
+      ],
+    });
+
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.args).toEqual([
+      'get',
+      'rsc.io/quote@v1.5.2',
+      'rsc.io/sampler@v1.99.99',
+    ]);
   });
 
   it('restores go.mod and go.sum exactly as they were', async () => {
@@ -65,7 +87,10 @@ describe('updating one dependency', () => {
     });
     const updater = createUpdater(runner);
 
-    await updater.update({ manifestPath, name: 'rsc.io/quote', version: 'v1.5.2' });
+    await updater.update({
+      manifestPath,
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
+    });
     expect(readFileSync(manifestPath, 'utf8')).toBe(AFTER);
 
     expect(await updater.undo(manifestPath)).toBe(true);
@@ -85,7 +110,10 @@ describe('updating one dependency', () => {
     });
     const updater = createUpdater(runner);
 
-    await updater.update({ manifestPath, name: 'rsc.io/quote', version: 'v1.5.2' });
+    await updater.update({
+      manifestPath,
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
+    });
     await updater.undo(manifestPath);
 
     expect(() => readFileSync(join(dirname(manifestPath), 'go.sum'))).toThrow();
@@ -99,15 +127,16 @@ describe('updating one dependency', () => {
     });
     const updater = createUpdater(runner);
 
-    const outcome = await updater.update({
+    const result = await updater.update({
       manifestPath,
-      name: 'rsc.io/quote',
-      version: 'v1.5.2',
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
     });
 
-    expect(outcome.status).toBe('failed');
-    expect(outcome.message).toMatch(/missing go\.sum entry/);
-    expect(readFileSync(manifestPath, 'utf8')).toBe('module example.com/a\n\n// partially written\n');
+    expect(result.status).toBe('failed');
+    expect(result.message).toMatch(/missing go\.sum entry/);
+    expect(readFileSync(manifestPath, 'utf8')).toBe(
+      'module example.com/a\n\n// partially written\n',
+    );
     expect(await updater.undo(manifestPath)).toBe(false);
   });
 });

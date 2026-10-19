@@ -14,6 +14,12 @@ export type HostToWebview = {
 
 export type RecoveryAction = 'repair' | 'retry' | 'install';
 
+/** A row the user selected, identified by its project and dependency name. */
+export interface DependencySelection {
+  readonly manifestPath: string;
+  readonly name: string;
+}
+
 export type WebviewToHost =
   | { readonly type: 'ready' }
   | { readonly type: 'refresh' }
@@ -27,4 +33,12 @@ export type WebviewToHost =
       readonly manifestPath: string;
       readonly name: string;
       readonly version: string;
+    }
+  | {
+      readonly type: 'bulk-update';
+      readonly selection: readonly DependencySelection[];
+    }
+  | {
+      readonly type: 'tidy';
+      readonly manifests: readonly string[];
     };

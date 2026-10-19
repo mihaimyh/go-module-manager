@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { UpdateRequest } from '../core/adapter';
-import type { HostToWebview, RecoveryAction, ResolveProgress } from '../core/messages';
+import type {
+  DependencySelection,
+  HostToWebview,
+  RecoveryAction,
+  ResolveProgress,
+} from '../core/messages';
 import type { PanelModel } from '../core/model';
 
 /**
@@ -12,6 +17,8 @@ export interface PanelHandlers {
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (request: UpdateRequest) => void;
+  readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
+  readonly onTidy: (manifests: readonly string[]) => void;
 }
 
 export class GmmPanel {
@@ -34,6 +41,8 @@ export class GmmPanel {
         action?: string;
         name?: string;
         version?: string;
+        selection?: unknown;
+        manifests?: unknown;
       }) => {
         if (message.type === 'ready') {
           this.post();
@@ -63,10 +72,18 @@ export class GmmPanel {
           if (known) {
             this.handlers.onUpdate({
               manifestPath: message.manifestPath,
-              name: message.name,
-              version: message.version,
+              changes: [{ name: message.name, version: message.version }],
             });
           }
+        }
+        if (message.type === 'bulk-update') {
+          const selection = toSelection(message.selection, this.model);
+          if (selection.length > 0) {
+            this.handlers.onBulkUpdate(selection);
+          }
+        }
+        if (message.type === 'tidy') {
+          this.handlers.onTidy(toManifests(message.manifests, this.model));
         }
       },
       undefined,
@@ -135,8 +152,42 @@ export class GmmPanel {
   }
 }
 
-function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-  const nonce = randomBytes(16).toString('base64');
+function toSelection(value: unknown, model: PanelModel): DependencySelection[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const selection: DependencySelection[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const { manifestPath, name } = entry as { manifestPath?: unknown; name?: unknown };
+    if (typeof manifestPath !== 'string' || typeof name !== 'string') {
+      continue;
+    }
+    const known = model.rows.some(
+      (row) => row.manifestPath === manifestPath && row.name === name,
+    );
+    if (known) {
+      selection.push({ manifestPath, name });
+    }
+  }
+  return selection;
+}
+
+function toManifests(value: unknown, model: PanelModel): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (entry): entry is string =>
+      typeof entry === 'string' &&
+      model.projects.some((project) => project.manifestPath === entry),
+  );
+}
+
+function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {  const nonce = randomBytes(16).toString('base64');
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'),
   );

@@ -5,16 +5,19 @@ export interface ResolveOptions {
   readonly fresh?: boolean;
 }
 
-export interface UpdateRequest {
-  readonly manifestPath: string;
+export interface PlannedChange {
   readonly name: string;
   readonly version: string;
 }
 
-export interface UpdateOutcome {
+export interface UpdateRequest {
   readonly manifestPath: string;
-  readonly name: string;
-  readonly version: string;
+  readonly changes: readonly PlannedChange[];
+}
+
+export interface UpdateResult {
+  readonly manifestPath: string;
+  readonly changes: readonly PlannedChange[];
   readonly status: 'updated' | 'failed';
   readonly message?: string;
 }
@@ -33,10 +36,12 @@ export interface EcosystemAdapter {
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
   /** Recovery for a missing lock entry; bounded to the owning project. */
   repair?(manifestPath: string): Promise<void>;
-  /** Moves one dependency, writing only that project's manifest and lock file. */
-  update?(request: UpdateRequest): Promise<UpdateOutcome>;
+  /** Moves the selected dependencies, writing only that project's manifest and lock file. */
+  update?(request: UpdateRequest): Promise<UpdateResult>;
   /** Restores the snapshot taken before the last update of that project. */
   undo?(manifestPath: string): Promise<boolean>;
+  /** Tidies one project; only ever called from its own confirmed action. */
+  tidy?(manifestPath: string): Promise<void>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }
