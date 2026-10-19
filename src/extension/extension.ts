@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import type { EcosystemAdapter, UpdateRequest, UpdateResult } from '../core/adapter';
-import { planBulkUpdate } from '../core/bulk';
 import type { DependencySelection, RecoveryAction } from '../core/messages';
 import {
   advisoryTargets,
@@ -13,7 +12,15 @@ import {
 import { resolveProjects } from '../core/updates';
 import { applyScan, markScan } from '../core/scan';
 import { detectAdapters } from '../ecosystems';
-import { createExecGoRunner, setGoInvocationSink, type GoInvocation } from '../ecosystems/go/runner';
+import {
+  createExecGoRunner,
+  setGoInvocationSink,
+  setGoSessionSignal,
+  type GoInvocation,
+} from '../ecosystems/go/runner';
+import { failureKindFor } from '../ecosystems/go/errors';
+import { requireLineNumber } from '../ecosystems/go/requireLine';
+import { planBulkUpdate, shouldRetryFailedGroup } from '../core/bulk';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
 import { FileAdvisoryCache } from './advisoryCache';
@@ -36,6 +43,7 @@ let output: vscode.OutputChannel | undefined;
 let environmentLogged = false;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
+let session = new AbortController();
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Go Module Manager');
@@ -43,9 +51,11 @@ export function activate(context: vscode.ExtensionContext): void {
     dispose: () => setGoInvocationSink(undefined),
   });
   setGoInvocationSink(logInvocation);
+  setGoSessionSignal(session.signal);
   output.appendLine(`Go Module Manager ${context.extension.packageJSON.version as string}`);
 
   handlers = createHandlers(context);
+  GmmPanel.setOnClosed(abortIfIdle);
 
   const viewProvider = new GmmViewProvider({
     extensionUri: context.extensionUri,
@@ -54,6 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ensureWorkspace: async () => {
       await ensureWorkspace(context);
     },
+    onSurfaceClosed: abortIfIdle,
   });
 
   context.subscriptions.push(
@@ -63,7 +74,7 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('gmm.goPath') && GmmPanel.isOpen()) {
+      if (event.affectsConfiguration('gmm.goPath') && surfaceOpen()) {
         void refresh(context, true);
       }
     }),
@@ -99,11 +110,31 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     onOpenPanel: () => {
       void openPanel(context);
     },
+    onOpenManifest: (manifestPath, name) => {
+      void openManifest(manifestPath, name);
+    },
   };
 }
 
 export function deactivate(): void {
-  // Nothing to tear down: the panel and the watcher own their disposables.
+  session.abort();
+  setGoSessionSignal(undefined);
+}
+
+function surfaceOpen(): boolean {
+  return GmmPanel.isOpen() || GmmPanel.hasSubscribers();
+}
+
+function resetSession(): void {
+  session.abort();
+  session = new AbortController();
+  setGoSessionSignal(session.signal);
+}
+
+function abortIfIdle(): void {
+  if (!surfaceOpen()) {
+    resetSession();
+  }
 }
 
 /** Runs a user-visible operation with one shared loading state. */
@@ -217,6 +248,10 @@ async function ensureWorkspace(
 }
 
 async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promise<void> {
+  if (updating) {
+    return;
+  }
+  resetSession();
   const loaded = await loadModel(context);
   if (!loaded) {
     return;
@@ -347,16 +382,21 @@ async function runGroups(
         .map((change) => `${change.name}@${change.version}`)
         .join(', ')}`,
     );
+    let kind: FailureKind = 'unknown';
     try {
       result = await update(group);
+      if (result.status === 'failed') {
+        kind = failureKindFor(1, result.message ?? '');
+      }
     } catch (error) {
+      kind = failureKindOf(error);
       result = { ...group, status: 'failed', message: messageOf(error) };
     }
 
     // One bad module makes the whole `go get` fail. Retry the group one
     // dependency at a time so the healthy ones still move; every retry reuses
-    // the snapshot taken before the group.
-    if (result.status === 'failed' && group.changes.length > 1) {
+    // the snapshot taken before the group. A broken toolchain is not retried.
+    if (result.status === 'failed' && shouldRetryFailedGroup(group.changes.length, kind)) {
       output?.appendLine(
         `group failed, retrying one by one: ${result.message ?? 'no message'}`,
       );
@@ -691,7 +731,7 @@ async function requestVersions(modulePath: string): Promise<void> {
     GmmPanel.postVersionsLoading(modulePath);
     GmmPanel.postVersions(modulePath, await get(modulePath));
   } catch {
-    // Keep the versions the panel already knows; the proxy is optional.
+    // Keep the versions the panel already knows; listing is optional.
     GmmPanel.postVersions(modulePath, []);
   }
 }
@@ -735,7 +775,11 @@ async function fillUpdates(
         return;
       }
       current = { ...loaded, model: report.model };
-      GmmPanel.update(report.model, { done: report.done, total: report.total });
+      GmmPanel.update(report.model, {
+        done: report.done,
+        total: report.total,
+        project: report.project,
+      });
       if (report.failure) {
         void vscode.window.showWarningMessage(
           `GMM: could not check ${report.failure.manifestPath}. ${report.failure.message}`,
@@ -798,7 +842,6 @@ async function loadModel(
     const [detected] = detectAdapters(root, {
       goPath,
       advisories: ensureAdvisorySource(context, goPath),
-      fetchText,
     });
     adapter = detected;
     if (!adapter) {
@@ -846,7 +889,7 @@ function watchManifests(context: vscode.ExtensionContext): vscode.Disposable {
   const watcher = vscode.workspace.createFileSystemWatcher('**/{go.mod,go.sum}');
 
   const schedule = (): void => {
-    if (!GmmPanel.isOpen()) {
+    if (!surfaceOpen()) {
       return;
     }
     if (refreshTimer !== undefined) {
@@ -905,14 +948,19 @@ async function fetchJson(url: string): Promise<unknown> {
   return response.json();
 }
 
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) {
-    throw new Error(`${url} returned ${response.status}`);
-  }
-  return response.text();
-}
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function openManifest(manifestPath: string, name: string): Promise<void> {
+  const uri = vscode.Uri.file(manifestPath);
+  const document = await vscode.workspace.openTextDocument(uri);
+  const editor = await vscode.window.showTextDocument(document, { preview: true });
+  const line = requireLineNumber(document.getText(), name);
+  if (line === undefined) {
+    return;
+  }
+  const position = new vscode.Position(line - 1, 0);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position));
 }

@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
-import { advisoryFixOffer } from '../core/advisoryAction';
+import { advisoryFixOffer, affectedRangeText } from '../core/advisoryAction';
+import { divergentModulePaths } from '../core/consolidate';
 import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import { sortRows, type SortKey, type SortState } from '../core/sort';
-import { compareVersions, parseVersion, type UpdateKind } from '../core/version';
+import {
+  compareVersions,
+  pickerVersions,
+  versionApplyOffer,
+  type UpdateKind,
+} from '../core/version';
 import { Dropdown } from './Dropdown';
 import {
   ArrowRightIcon,
@@ -36,7 +42,7 @@ const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly 
   unknown: { action: 'retry', label: 'Retry' },
 };
 
-type Tab = 'dependencies' | 'updates' | 'vulnerabilities';
+type Tab = 'dependencies' | 'updates' | 'vulnerabilities' | 'consolidate';
 
 interface AppProps {
   readonly model: PanelModel | undefined;
@@ -54,6 +60,7 @@ interface AppProps {
   readonly versions: Readonly<Record<string, readonly string[]>>;
   readonly onVersions: (modulePath: string) => void;
   readonly onOpenPanel: () => void;
+  readonly onOpenManifest: (manifestPath: string, name: string) => void;
 }
 
 export function App({
@@ -72,13 +79,16 @@ export function App({
   versions,
   onVersions,
   onOpenPanel,
+  onOpenManifest,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>(() =>
     window.location.hash === '#vulnerabilities'
       ? 'vulnerabilities'
       : window.location.hash === '#updates'
         ? 'updates'
-        : 'dependencies',
+        : window.location.hash === '#consolidate'
+          ? 'consolidate'
+          : 'dependencies',
   );
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -126,12 +136,16 @@ export function App({
   const scopedAdvisoryIds = new Set(
     scopedRows.flatMap((row) => row.advisories.map((advisory) => advisory.id)),
   );
+  const divergent = divergentModulePaths(scopedRows);
+  const scopedDivergent = scopedRows.filter((row) => divergent.has(row.name));
   const tabRows =
     tab === 'updates'
       ? scopedUpdates
       : tab === 'vulnerabilities'
         ? scopedAdvisoryRows
-        : scopedRows;
+        : tab === 'consolidate'
+          ? scopedDivergent
+          : scopedRows;
 
   const hiddenByDirect = !directOnly
     ? 0
@@ -194,7 +208,7 @@ export function App({
       .sort()
       .at(-1);
     return at === undefined
-      ? 'Reachability has not been scanned.'
+      ? 'not scanned yet.'
       : `Reachable code scanned ${ageOf(at)}.`;
   })();
 
@@ -210,7 +224,12 @@ export function App({
 
   const checking = progress !== undefined && progress.done < progress.total;
   const statusLabel =
-    busy ?? (checking ? `Checking updates… ${progress.done}/${progress.total}` : undefined);
+    busy ??
+    (checking
+      ? `Checking updates… ${progress.done}/${progress.total}${
+          progress.project === undefined ? '' : ` · ${progress.project}`
+        }`
+      : undefined);
   const statusPercent =
     progress !== undefined && progress.total > 0 && checking
       ? Math.round((progress.done / progress.total) * 100)
@@ -359,9 +378,12 @@ export function App({
           active={tab === 'vulnerabilities'}
           onClick={() => setTab('vulnerabilities')}
         />
-        <button type="button" className="tab disabled" disabled title="Lands in 1.0">
-          Consolidate
-        </button>
+        <TabButton
+          label="Consolidate"
+          count={divergent.size}
+          active={tab === 'consolidate'}
+          onClick={() => setTab('consolidate')}
+        />
         {checked.size > 0 ? (
           <span className="selection-count">
             {visibleSelected.length} selected
@@ -432,6 +454,8 @@ export function App({
                 {model.advisoryData === undefined
                   ? ''
                   : ` Advisories ${model.advisoryData.stale ? 'may be stale' : `from ${ageOf(model.advisoryData.fetchedAt)}`}.`}
+                {' '}
+                Scan reachable contacts the Go vulnerability database.
               </span>
               <button
                 type="button"
@@ -474,14 +498,14 @@ export function App({
                 />
                 <SortHeader
                   label="Required"
-                  column="required"
+                  column="declared"
                   sort={sort}
                   onSort={toggleSort}
                   className="col-version col-required"
                 />
                 <SortHeader
                   label="Selected"
-                  column="selected"
+                  column="resolved"
                   sort={sort}
                   onSort={toggleSort}
                   className="col-version"
@@ -540,6 +564,7 @@ export function App({
               busy={busy !== undefined}
               onVersions={onVersions}
               onUpdate={onUpdate}
+              onOpenManifest={onOpenManifest}
             />
           ) : (
             <p className="empty">Select a module.</p>
@@ -799,13 +824,17 @@ function EmptyState({
   if (tab === 'vulnerabilities') {
     return (
       <p className="empty">
-        No advisories matched the resolved versions. Reachability scanning is a later
-        ticket.
+        No advisories matched the resolved versions. Reachability is not scanned yet.
       </p>
     );
   }
   if (tab === 'updates') {
     return <p className="empty">Everything is up to date.</p>;
+  }
+  if (tab === 'consolidate') {
+    return (
+      <p className="empty">Every module resolves the same version in every project.</p>
+    );
   }
   return <p className="empty">No dependencies in this view.</p>;
 }
@@ -817,6 +846,7 @@ function Inspector({
   busy,
   onVersions,
   onUpdate,
+  onOpenManifest,
 }: {
   readonly row: DependencyRow;
   readonly versions: readonly string[] | undefined;
@@ -824,7 +854,10 @@ function Inspector({
   readonly busy: boolean;
   readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+  readonly onOpenManifest: (manifestPath: string, name: string) => void;
 }): JSX.Element {
+  const [includePrereleases, setIncludePrereleases] = useState(false);
+
   useEffect(() => {
     if (row.replacement === undefined) {
       onVersions(row.name);
@@ -832,12 +865,16 @@ function Inspector({
   }, [row.name, row.replacement]);
 
   const known = [row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString);
-  const options = [...new Set([...(versions ?? []), ...known])]
-    .filter((candidate) => parseVersion(candidate) !== undefined)
-    .sort((left, right) => compareVersions(right, left));
+  const options = pickerVersions(
+    [...new Set([...(versions ?? []), ...known])].sort((left, right) =>
+      compareVersions(right, left),
+    ),
+    { includePrereleases },
+  );
   const fallback = options[0] ?? row.declaredVersion;
   const [version, setVersion] = useState(fallback);
   const chosen = options.includes(version) ? version : fallback;
+  const apply = versionApplyOffer(row.resolvedVersion, chosen, { includePrereleases });
 
   return (
     <div className="inspector-body">
@@ -872,7 +909,14 @@ function Inspector({
         <div>
           <dt>Declared in</dt>
           <dd>
-            <code className="mono path-code">{row.manifestPath}</code>
+            <button
+              type="button"
+              className="link-button path-link"
+              title="Open go.mod at this require"
+              onClick={() => onOpenManifest(row.manifestPath, row.name)}
+            >
+              {row.manifestPath}
+            </button>
           </dd>
         </div>
         <div>
@@ -940,7 +984,7 @@ function Inspector({
         <>
           <div className="controls">
             <Dropdown
-              label="Version to install"
+              label="Version"
               value={chosen}
               options={options.map((candidate) => ({
                 value: candidate,
@@ -952,17 +996,28 @@ function Inspector({
             <button
               type="button"
               className="button primary"
-              disabled={busy || chosen === row.resolvedVersion}
+              disabled={busy || !apply.allowed}
               title={
-                chosen === row.resolvedVersion
-                  ? 'Already resolved at this version'
-                  : `Run go get ${row.name}@${chosen}`
+                apply.allowed
+                  ? `Run go get ${row.name}@${chosen}`
+                  : apply.reason
               }
               onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
             >
               Update
             </button>
           </div>
+          <label className="checkbox version-prerelease">
+            <input
+              type="checkbox"
+              checked={includePrereleases}
+              onChange={(event) => setIncludePrereleases(event.target.checked)}
+            />
+            Show prereleases
+          </label>
+          {apply.allowed || chosen === row.resolvedVersion ? null : (
+            <p className="version-note muted">{apply.reason}</p>
+          )}
 
           {versionsPending ? (
             <p className="version-note muted">
@@ -1020,6 +1075,7 @@ function AdvisoryCard({
         <strong>Advisory affects this module</strong>
         <p className="mono">
           {advisory.id} · {advisory.summary}
+          {` · ${affectedRangeText(advisory)}`}
           {advisory.fixedIn ? ` · fixed in ${advisory.fixedIn}` : ''}
         </p>
         {advisory.reachable === true ? (
@@ -1081,7 +1137,7 @@ function repositoryUrl(modulePath: string): string | undefined {
 }
 
 /** The module whose code actually runs: the replace target, or the declared path. */
-function packagePath(row: DependencyRow): string | undefined {
+function linkModulePath(row: DependencyRow): string | undefined {
   if (row.replacement === undefined) {
     return row.name;
   }
@@ -1089,12 +1145,12 @@ function packagePath(row: DependencyRow): string | undefined {
 }
 
 function pkgUrl(row: DependencyRow): string | undefined {
-  const path = packagePath(row);
+  const path = linkModulePath(row);
   return path === undefined ? undefined : `https://pkg.go.dev/${path}`;
 }
 
 function repositoryUrlFor(row: DependencyRow): string | undefined {
-  const path = packagePath(row);
+  const path = linkModulePath(row);
   return path === undefined ? undefined : repositoryUrl(path);
 }
 

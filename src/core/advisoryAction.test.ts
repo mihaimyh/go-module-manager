@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advisoryFixOffer } from './advisoryAction';
+import { advisoryFixOffer, affectedRangeText } from './advisoryAction';
 
 const advisory = (fixedIn?: string) => ({
   id: 'GO-0000-00001',
@@ -52,5 +52,28 @@ describe('advisoryFixOffer', () => {
       offered: false,
       reason: 'The fixed version cannot be compared.',
     });
+  });
+});
+
+describe('affectedRangeText', () => {
+  it('renders both bounds', () => {
+    expect(
+      affectedRangeText({
+        id: 'GO-0000-00002',
+        summary: 'only the 1.4 line',
+        introduced: 'v1.4.0',
+        fixedIn: 'v1.5.0',
+      }),
+    ).toBe('v1.4.0 ≤ version < v1.5.0');
+  });
+
+  it('renders an open lower bound', () => {
+    expect(
+      affectedRangeText({
+        id: 'GO-0000-00001',
+        summary: 'from the start',
+        fixedIn: 'v1.99.99',
+      }),
+    ).toBe('version < v1.99.99');
   });
 });

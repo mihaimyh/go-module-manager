@@ -1,5 +1,22 @@
 import type { UpdateRequest } from './adapter';
-import type { DependencyRow } from './model';
+import type { DependencyRow, FailureKind } from './model';
+
+const RETRYABLE: ReadonlySet<FailureKind> = new Set([
+  'verification',
+  'unknown',
+  'missing-lock-entry',
+]);
+
+/**
+ * Isolate one broken module in a group, but not when the toolchain itself
+ * cannot run (missing binary, offline, timeout, auth).
+ */
+export function shouldRetryFailedGroup(
+  changeCount: number,
+  kind: FailureKind,
+): boolean {
+  return changeCount > 1 && RETRYABLE.has(kind);
+}
 
 /**
  * Groups the selected rows by owning manifest and targets each one's candidate.

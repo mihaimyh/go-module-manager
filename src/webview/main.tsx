@@ -98,6 +98,11 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onOpenManifest = (manifestPath: string, name: string): void => {
+    const message: WebviewToHost = { type: 'open-manifest', manifestPath, name };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -108,6 +113,7 @@ function Root(): JSX.Element {
       versions={state.versions ?? {}}
       onVersions={onVersions}
       onOpenPanel={onOpenPanel}
+      onOpenManifest={onOpenManifest}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}

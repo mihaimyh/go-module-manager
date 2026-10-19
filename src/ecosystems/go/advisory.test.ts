@@ -48,8 +48,17 @@ describe('matchAdvisories', () => {
       matchAdvisories([document], [{ name: 'example.com/m', version: 'v1.3.9' }]).size,
     ).toBe(0);
     expect(
-      matchAdvisories([document], [{ name: 'example.com/m', version: 'v1.4.0' }]).size,
-    ).toBe(1);
+      matchAdvisories([document], [{ name: 'example.com/m', version: 'v1.4.0' }]).get(
+        'example.com/m@v1.4.0',
+      ),
+    ).toEqual([
+      {
+        id: 'GO-0000-00002',
+        summary: 'only the 1.4 line',
+        introduced: 'v1.4.0',
+        fixedIn: 'v1.5.0',
+      },
+    ]);
     expect(
       matchAdvisories([document], [{ name: 'example.com/m', version: 'v1.5.0' }]).size,
     ).toBe(0);
@@ -76,6 +85,20 @@ describe('matchAdvisories', () => {
     expect(
       matchAdvisories([sampler], [{ name: 'rsc.io/sampler', version: 'workspace' }]).size,
     ).toBe(0);
+  });
+
+  it('matches a pseudo-version inside the range that contains its base', () => {
+    const document: AdvisoryDocument = {
+      id: 'GO-0000-00011',
+      summary: 'the 1.2 line',
+      ranges: [{ module: 'example.com/m', introduced: 'v1.2.0', fixed: 'v1.3.0' }],
+    };
+
+    expect(
+      matchAdvisories([document], [
+        { name: 'example.com/m', version: 'v1.3.0-0.20240101120000-abcdef123456' },
+      ]).size,
+    ).toBe(1);
   });
 });
 

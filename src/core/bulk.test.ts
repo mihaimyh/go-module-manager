@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planBulkUpdate } from './bulk';
+import { planBulkUpdate, shouldRetryFailedGroup } from './bulk';
 import type { DependencyRow } from './model';
 
 function row(
@@ -48,5 +48,24 @@ describe('planBulkUpdate', () => {
     expect(
       planBulkUpdate([row('/repo/a/go.mod', 'rsc.io/quote', undefined)]),
     ).toEqual([]);
+  });
+});
+
+describe('shouldRetryFailedGroup', () => {
+  it('retries a multi-module group after one module fails verification', () => {
+    expect(shouldRetryFailedGroup(3, 'verification')).toBe(true);
+    expect(shouldRetryFailedGroup(2, 'unknown')).toBe(true);
+    expect(shouldRetryFailedGroup(2, 'missing-lock-entry')).toBe(true);
+  });
+
+  it('does not retry when the toolchain itself is broken', () => {
+    expect(shouldRetryFailedGroup(3, 'toolchain-missing')).toBe(false);
+    expect(shouldRetryFailedGroup(3, 'network')).toBe(false);
+    expect(shouldRetryFailedGroup(3, 'timeout')).toBe(false);
+    expect(shouldRetryFailedGroup(3, 'auth-required')).toBe(false);
+  });
+
+  it('does not retry a group of one', () => {
+    expect(shouldRetryFailedGroup(1, 'verification')).toBe(false);
   });
 });

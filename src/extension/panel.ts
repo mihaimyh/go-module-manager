@@ -102,6 +102,16 @@ export class GmmPanel {
     return GmmPanel.current !== undefined;
   }
 
+  static hasSubscribers(): boolean {
+    return GmmPanel.subscribers.size > 0;
+  }
+
+  static setOnClosed(handler: (() => void) | undefined): void {
+    GmmPanel.onClosed = handler;
+  }
+
+  private static onClosed: (() => void) | undefined;
+
   /** Subscribe a surface (the Activity Bar view) to every published message. */
   static subscribe(send: Subscriber): () => void {
     GmmPanel.subscribers.add(send);
@@ -134,5 +144,6 @@ export class GmmPanel {
     while (this.disposables.length > 0) {
       this.disposables.pop()?.dispose();
     }
+    GmmPanel.onClosed?.();
   }
 }

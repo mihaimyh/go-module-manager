@@ -34,7 +34,7 @@ export interface UpdateResult {
  * The single seam between the panel and a dependency ecosystem.
  *
  * `read` is fast and offline; `resolve` fills in build-list versions and
- * available updates for one project. Writes arrive with a later ticket.
+ * available updates for one project.
  */
 export interface EcosystemAdapter {
   readonly id: string;

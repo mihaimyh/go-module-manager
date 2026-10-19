@@ -110,6 +110,50 @@ function comparePrerelease(left: string, right: string): number {
  * Ecosystems where a resolved version can be a commit classify that case
  * before calling this, because a commit is not a SemVer version.
  */
+export type VersionApplyOffer =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };
+
+/**
+ * Whether the inspector may run `go get` for the chosen version. Downgrades
+ * rewrite the graph and stay out of this release; prereleases stay hidden
+ * until the user asks.
+ */
+export function versionApplyOffer(
+  resolved: string | undefined,
+  chosen: string,
+  options: { readonly includePrereleases?: boolean } = {},
+): VersionApplyOffer {
+  if (resolved !== undefined && chosen === resolved) {
+    return { allowed: false, reason: 'Already resolved at this version' };
+  }
+  if (resolved !== undefined && compareVersions(chosen, resolved) < 0) {
+    return {
+      allowed: false,
+      reason: 'Downgrades need an impact preview, which is not in this release.',
+    };
+  }
+  if (options.includePrereleases !== true && isPrerelease(chosen)) {
+    return {
+      allowed: false,
+      reason: 'Prereleases are hidden until you ask to show them.',
+    };
+  }
+  return { allowed: true };
+}
+
+/** Versions shown in the picker; prereleases stay out until asked. */
+export function pickerVersions(
+  versions: readonly string[],
+  options: { readonly includePrereleases?: boolean } = {},
+): string[] {
+  return versions.filter(
+    (version) =>
+      parseVersion(version) !== undefined &&
+      (options.includePrereleases === true || !isPrerelease(version)),
+  );
+}
+
 export function classifyUpdate(from: string, to: string): UpdateKind {
   if (from === to) {
     return 'none';

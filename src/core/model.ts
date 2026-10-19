@@ -4,6 +4,7 @@ import { isPrerelease, type UpdateKind } from './version';
 export interface Advisory {
   readonly id: string;
   readonly summary: string;
+  readonly introduced?: string;
   readonly fixedIn?: string;
   /** True only when a call-graph scan found the vulnerable symbol reachable. */
   readonly reachable?: boolean;

@@ -63,4 +63,10 @@ describe('sortRows', () => {
       'a/lib',
     ]);
   });
+
+  it('sorts declared and resolved versions numerically', () => {
+    expect(
+      sortRows(rows, { key: 'declared', direction: 'desc' }).map((r) => r.declaredVersion),
+    ).toEqual(['v1.10.0', 'v1.2.0', 'v1.0.0', 'v1.0.0']);
+  });
 });

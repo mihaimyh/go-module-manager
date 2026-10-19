@@ -1,6 +1,20 @@
 import type { Advisory } from './model';
 import { compareVersions, isPrerelease, parseVersion } from './version';
 
+/** Inspector copy for the range the advisory matched. */
+export function affectedRangeText(advisory: Advisory): string {
+  if (advisory.introduced !== undefined && advisory.fixedIn !== undefined) {
+    return `${advisory.introduced} ≤ version < ${advisory.fixedIn}`;
+  }
+  if (advisory.fixedIn !== undefined) {
+    return `version < ${advisory.fixedIn}`;
+  }
+  if (advisory.introduced !== undefined) {
+    return `version ≥ ${advisory.introduced}`;
+  }
+  return 'affected range unknown';
+}
+
 export type AdvisoryFixOffer =
   | { readonly offered: true; readonly version: string }
   | { readonly offered: false; readonly reason: string };

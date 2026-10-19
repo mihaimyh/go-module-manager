@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { classifyUpdate, isPrerelease, parseVersion } from './version';
+import {
+  classifyUpdate,
+  isPrerelease,
+  parseVersion,
+  pickerVersions,
+  versionApplyOffer,
+} from './version';
 
 describe('parseVersion', () => {
   it('reads a release', () => {
@@ -48,5 +54,47 @@ describe('classifyUpdate', () => {
 
   it('marks a prerelease target', () => {
     expect(classifyUpdate('v1.5.2', 'v2.0.0-rc.1')).toBe('prerelease');
+  });
+});
+
+describe('versionApplyOffer', () => {
+  it('allows an upgrade on the same path', () => {
+    expect(versionApplyOffer('v1.5.1', 'v1.5.2')).toEqual({ allowed: true });
+  });
+
+  it('refuses the already-resolved version', () => {
+    expect(versionApplyOffer('v1.5.2', 'v1.5.2')).toEqual({
+      allowed: false,
+      reason: 'Already resolved at this version',
+    });
+  });
+
+  it('refuses a downgrade', () => {
+    expect(versionApplyOffer('v1.5.2', 'v1.5.1')).toEqual({
+      allowed: false,
+      reason: 'Downgrades need an impact preview, which is not in this release.',
+    });
+  });
+
+  it('hides a prerelease until asked', () => {
+    expect(versionApplyOffer('v1.5.1', 'v1.6.0-rc.1')).toEqual({
+      allowed: false,
+      reason: 'Prereleases are hidden until you ask to show them.',
+    });
+    expect(
+      versionApplyOffer('v1.5.1', 'v1.6.0-rc.1', { includePrereleases: true }),
+    ).toEqual({ allowed: true });
+  });
+});
+
+describe('pickerVersions', () => {
+  it('drops prereleases unless asked', () => {
+    const versions = ['v1.2.0', 'v1.3.0-rc.1', 'v1.1.0'];
+    expect(pickerVersions(versions)).toEqual(['v1.2.0', 'v1.1.0']);
+    expect(pickerVersions(versions, { includePrereleases: true })).toEqual([
+      'v1.2.0',
+      'v1.3.0-rc.1',
+      'v1.1.0',
+    ]);
   });
 });

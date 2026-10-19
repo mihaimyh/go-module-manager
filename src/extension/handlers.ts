@@ -11,4 +11,5 @@ export interface PanelHandlers {
   readonly onInstallScanner: () => void;
   readonly onVersions: (modulePath: string) => void;
   readonly onOpenPanel: () => void;
+  readonly onOpenManifest: (manifestPath: string, name: string) => void;
 }

@@ -10,6 +10,7 @@ export interface GmmViewDeps {
   readonly handlers: PanelHandlers;
   readonly getModel: () => PanelModel | undefined;
   readonly ensureWorkspace: () => Promise<void>;
+  readonly onSurfaceClosed?: () => void;
 }
 
 /** The Activity Bar view: the same webview document, rendered in the sidebar. */
@@ -48,6 +49,7 @@ export class GmmViewProvider implements vscode.WebviewViewProvider {
     view.onDidDispose(() => {
       this.unsubscribe?.();
       this.unsubscribe = undefined;
+      this.deps.onSurfaceClosed?.();
     });
   }
 }

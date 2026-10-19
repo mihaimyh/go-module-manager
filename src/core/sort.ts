@@ -2,7 +2,7 @@ import type { DependencyRow } from './model';
 import type { UpdateKind } from './version';
 import { compareVersions } from './version';
 
-export type SortKey = 'module' | 'owning' | 'required' | 'selected' | 'update' | 'kind';
+export type SortKey = 'module' | 'owning' | 'declared' | 'resolved' | 'update' | 'kind';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SortState {
@@ -42,7 +42,7 @@ export function sortRows(
 }
 
 function missing(row: DependencyRow, key: SortKey): boolean {
-  if (key === 'selected') {
+  if (key === 'resolved') {
     return row.resolvedVersion === undefined;
   }
   if (key === 'update') {
@@ -57,9 +57,9 @@ function compare(left: DependencyRow, right: DependencyRow, key: SortKey): numbe
       return left.name.localeCompare(right.name);
     case 'owning':
       return left.project.localeCompare(right.project);
-    case 'required':
+    case 'declared':
       return compareVersion(left.declaredVersion, right.declaredVersion);
-    case 'selected':
+    case 'resolved':
       return compareVersion(left.resolvedVersion, right.resolvedVersion);
     case 'update':
       return compareVersion(left.candidate, right.candidate);

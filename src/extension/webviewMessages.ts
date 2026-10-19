@@ -103,6 +103,17 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
     case 'open-panel':
       target.handlers.onOpenPanel();
       return;
+    case 'open-manifest':
+      if (
+        typeof message.manifestPath === 'string' &&
+        typeof message.name === 'string' &&
+        model.rows.some(
+          (row) => row.manifestPath === message.manifestPath && row.name === message.name,
+        )
+      ) {
+        target.handlers.onOpenManifest(message.manifestPath, message.name);
+      }
+      return;
   }
 }
 

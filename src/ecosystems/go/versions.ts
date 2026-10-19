@@ -1,28 +1,25 @@
 import { compareVersions, parseVersion } from '../../core/version';
-import { createPrivateMatcher, type PrivateMatcher } from './private';
-import type { GoRunner } from './runner';
+import { failureKindFor, GoCommandError } from './errors';
+import { firstLine, goEnv, type GoRunner } from './runner';
 
-const PROXY_LIST = 'https://proxy.golang.org/';
 const VERSIONS_TIMEOUT_MS = 15_000;
 
-/** Go's proxy encodes every uppercase letter as `!` plus its lowercase form. */
-export function encodeModulePath(modulePath: string): string {
-  return modulePath.replace(/[A-Z]/g, (character) => `!${character.toLowerCase()}`);
+export interface VersionsOptions {
+  readonly runner: GoRunner;
+  readonly cwd?: string;
 }
 
-export interface VersionsOptions {
-  readonly fetchText: (url: string) => Promise<string>;
-  readonly runner: GoRunner;
+interface VersionList {
+  readonly Versions?: unknown;
+  readonly Retract?: readonly { readonly Low?: unknown; readonly High?: unknown }[];
 }
 
 /**
- * All tagged versions of a module, newest first, from the public Go proxy.
- * Private module paths are never requested; pseudo-versions are never listed
- * by the proxy and stay as the rows already know them.
+ * All tagged versions of a module, newest first, from `go list`. The toolchain
+ * honours GOPROXY/GOPRIVATE and already knows which versions are retracted.
  */
 export function createVersionsFetcher(options: VersionsOptions) {
   const cache = new Map<string, Promise<readonly string[]>>();
-  const matcher: PrivateMatcher = createPrivateMatcher(options.runner);
 
   return {
     fetch(modulePath: string): Promise<readonly string[]> {
@@ -31,7 +28,7 @@ export function createVersionsFetcher(options: VersionsOptions) {
         return cached;
       }
 
-      const pending = load(modulePath, options.fetchText, matcher);
+      const pending = load(modulePath, options);
       cache.set(modulePath, pending);
       void pending.catch(() => cache.delete(modulePath));
       return pending;
@@ -41,89 +38,48 @@ export function createVersionsFetcher(options: VersionsOptions) {
 
 async function load(
   modulePath: string,
-  fetchText: (url: string) => Promise<string>,
-  matcher: PrivateMatcher,
+  options: VersionsOptions,
 ): Promise<readonly string[]> {
-  if (await matcher.isPrivate(modulePath)) {
-    return [];
-  }
+  const result = await options.runner.run(['list', '-m', '-versions', '-json', modulePath], {
+    cwd: options.cwd ?? process.cwd(),
+    env: goEnv(),
+    timeoutMs: VERSIONS_TIMEOUT_MS,
+  });
 
-  const encoded = encodeModulePath(modulePath);
-  const text = await fetchText(`${PROXY_LIST}${encoded}/@v/list`);
-  const versions = [...new Set(text.split(/\r?\n/).map((line) => line.trim()))]
-    .filter((version) => version !== '' && parseVersion(version) !== undefined)
-    .sort((left, right) => compareVersions(right, left));
-
-  const retracted = await retractedVersions(encoded, fetchText);
-  return versions.filter((version) => !isRetracted(version, retracted));
-}
-
-interface RetractRange {
-  readonly low: string;
-  readonly high: string;
-}
-
-/**
- * Retractions are declared in the go.mod of the module's latest version, not in
- * the version list. Two requests (latest, then its .mod) avoid asking for every
- * version's file.
- */
-async function retractedVersions(
-  encodedPath: string,
-  fetchText: (url: string) => Promise<string>,
-): Promise<readonly RetractRange[]> {
-  try {
-    const latestRaw = await fetchText(`${PROXY_LIST}${encodedPath}/@latest`);
-    const latest = (JSON.parse(latestRaw) as { Version?: unknown }).Version;
-    if (typeof latest !== 'string') {
-      return [];
-    }
-    const goMod = await fetchText(
-      `${PROXY_LIST}${encodedPath}/@v/${latest}.mod`,
+  if (result.exitCode !== 0) {
+    throw new GoCommandError(
+      failureKindFor(result.exitCode, result.stderr),
+      firstLine(result.stderr),
     );
-    return parseRetracts(goMod);
-  } catch {
-    // No latest version, or no retraction data: keep the list.
-    return [];
-  }
-}
-
-export function parseRetracts(goMod: string): readonly RetractRange[] {
-  const ranges: RetractRange[] = [];
-  let inBlock = false;
-
-  for (const rawLine of goMod.split(/\r?\n/)) {
-    const line = rawLine.replace(/\/\/.*$/, '').trim();
-    if (line === '') {
-      continue;
-    }
-    if (/^retract\s*\(\s*$/.test(line)) {
-      inBlock = true;
-      continue;
-    }
-    if (inBlock && line === ')') {
-      inBlock = false;
-      continue;
-    }
-    const body = inBlock ? line : /^retract\s+(.+)$/.exec(line)?.[1];
-    if (body === undefined || body === null) {
-      continue;
-    }
-    const single = /^(v\d+\.\d+\.\d+\S*)$/.exec(body);
-    if (single?.[1] !== undefined) {
-      ranges.push({ low: single[1], high: single[1] });
-      continue;
-    }
-    const interval = /^\[\s*(\S+)\s*,\s*(\S+)\s*\]$/.exec(body);
-    if (interval?.[1] !== undefined && interval[2] !== undefined) {
-      ranges.push({ low: interval[1], high: interval[2] });
-    }
   }
 
-  return ranges;
+  const parsed = JSON.parse(result.stdout) as VersionList;
+  const retracted = (parsed.Retract ?? [])
+    .map((range) => ({
+      low: typeof range.Low === 'string' ? range.Low : undefined,
+      high: typeof range.High === 'string' ? range.High : undefined,
+    }))
+    .filter(
+      (range): range is { low: string; high: string } =>
+        range.low !== undefined && range.high !== undefined,
+    );
+
+  const listed = Array.isArray(parsed.Versions) ? parsed.Versions : [];
+  return [
+    ...new Set(
+      listed.filter((value): value is string => typeof value === 'string'),
+    ),
+  ]
+    .filter(
+      (version) => parseVersion(version) !== undefined && !isRetracted(version, retracted),
+    )
+    .sort((left, right) => compareVersions(right, left));
 }
 
-function isRetracted(version: string, ranges: readonly RetractRange[]): boolean {
+function isRetracted(
+  version: string,
+  ranges: readonly { readonly low: string; readonly high: string }[],
+): boolean {
   return ranges.some(
     (range) =>
       compareVersions(version, range.low) >= 0 && compareVersions(version, range.high) <= 0,

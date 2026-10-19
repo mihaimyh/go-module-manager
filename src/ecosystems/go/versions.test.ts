@@ -1,151 +1,109 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createVersionsFetcher,
-  encodeModulePath,
-  parseRetracts,
-} from './versions';
+import { createVersionsFetcher } from './versions';
+import { GoCommandError } from './errors';
 import type { GoRunner, RunOptions, RunResult } from './runner';
 
 class FakeRunner implements GoRunner {
-  readonly calls: string[] = [];
+  readonly calls: { args: readonly string[]; options: RunOptions }[] = [];
 
-  constructor(private readonly env = '', private readonly exitCode = 0) {}
-
-  async run(args: readonly string[], _options: RunOptions): Promise<RunResult> {
-    this.calls.push(args.join(' '));
-    return {
-      stdout: args[0] === 'env' ? this.env : '',
+  constructor(
+    private readonly respond: (args: readonly string[]) => RunResult = () => ({
+      stdout: '',
       stderr: '',
-      exitCode: this.exitCode,
-    };
+      exitCode: 0,
+    }),
+  ) {}
+
+  async run(args: readonly string[], options: RunOptions): Promise<RunResult> {
+    this.calls.push({ args, options });
+    return this.respond(args);
   }
 }
 
-function proxy(
-  list: string,
-  options: { latest?: string; goMod?: string } = {},
-): (url: string) => Promise<string> {
-  return async (url) => {
-    if (url.endsWith('/@latest')) {
-      return JSON.stringify({ Version: options.latest ?? 'v9.9.9' });
-    }
-    if (/\/@v\/.+\.mod$/.test(url)) {
-      return options.goMod ?? 'module example.com/m\n';
-    }
-    return list;
-  };
-}
-
-function fetcher(fetchText: (url: string) => Promise<string>, runner = new FakeRunner()) {
-  return createVersionsFetcher({ fetchText, runner });
-}
-
-describe('encodeModulePath', () => {
-  it('encodes uppercase letters the way the proxy expects', () => {
-    expect(encodeModulePath('dev.azure.com/INGCDaaS/service')).toBe(
-      'dev.azure.com/!i!n!g!c!daa!s/service',
-    );
+function listJson(options: {
+  readonly versions: readonly string[];
+  readonly retract?: readonly { Low: string; High: string }[];
+}): string {
+  return JSON.stringify({
+    Path: 'rsc.io/quote',
+    Versions: options.versions,
+    ...(options.retract === undefined ? {} : { Retract: options.retract }),
   });
-});
-
-describe('parseRetracts', () => {
-  it('reads single versions and closed intervals, in blocks too', () => {
-    const goMod = [
-      'module example.com/m',
-      'retract v1.0.1 // typo',
-      'retract [v1.1.0, v1.2.0]',
-      'retract (',
-      '  v1.4.0',
-      '  [v1.5.0, v1.6.0]',
-      ')',
-    ].join('\n');
-
-    expect(parseRetracts(goMod)).toEqual([
-      { low: 'v1.0.1', high: 'v1.0.1' },
-      { low: 'v1.1.0', high: 'v1.2.0' },
-      { low: 'v1.4.0', high: 'v1.4.0' },
-      { low: 'v1.5.0', high: 'v1.6.0' },
-    ]);
-  });
-});
+}
 
 describe('versions fetcher', () => {
-  it('lists every tagged version, newest first, without duplicates', async () => {
-    const requested: string[] = [];
-    const fetch = fetcher(async (url) => {
-      requested.push(url);
-      if (url.endsWith('/@latest')) {
-        return JSON.stringify({ Version: 'v1.10.0' });
-      }
-      if (url.endsWith('.mod')) {
-        return 'module rsc.io/quote\n';
-      }
-      return ['v1.4.0', 'v1.10.0', 'v1.9.9', 'v1.4.0', 'not-a-version', ''].join('\n');
-    });
+  it('lists tagged versions newest first via go list, not the public proxy', async () => {
+    const runner = new FakeRunner(() => ({
+      stdout: listJson({
+        versions: ['v1.4.0', 'v1.10.0', 'v1.9.9', 'v1.4.0', 'not-a-version'],
+      }),
+      stderr: '',
+      exitCode: 0,
+    }));
 
-    const versions = await fetch.fetch('rsc.io/quote');
+    const versions = await createVersionsFetcher({ runner, cwd: '/repo' }).fetch('rsc.io/quote');
 
     expect(versions).toEqual(['v1.10.0', 'v1.9.9', 'v1.4.0']);
-    expect(requested[0]).toBe('https://proxy.golang.org/rsc.io/quote/@v/list');
-  });
-
-  it('drops retracted versions', async () => {
-    const fetch = fetcher(
-      proxy('v1.0.0\nv1.1.0\nv1.2.0\nv1.3.0', {
-        latest: 'v1.3.0',
-        goMod: 'module example.com/m\n\nretract [v1.1.0, v1.2.0]\n',
+    expect(runner.calls).toEqual([
+      expect.objectContaining({
+        args: ['list', '-m', '-versions', '-json', 'rsc.io/quote'],
+        options: expect.objectContaining({ cwd: '/repo' }),
       }),
-    );
-
-    expect(await fetch.fetch('example.com/m')).toEqual(['v1.3.0', 'v1.0.0']);
+    ]);
   });
 
-  it('keeps the list when retraction data cannot be read', async () => {
-    const fetch = fetcher(async (url) => {
-      if (url.endsWith('/@latest')) {
-        throw new Error('no latest');
-      }
-      return 'v1.0.0\nv1.1.0';
-    });
+  it('drops retracted versions the toolchain reported', async () => {
+    const runner = new FakeRunner(() => ({
+      stdout: listJson({
+        versions: ['v1.0.0', 'v1.1.0', 'v1.2.0', 'v1.3.0'],
+        retract: [{ Low: 'v1.1.0', High: 'v1.2.0' }],
+      }),
+      stderr: '',
+      exitCode: 0,
+    }));
 
-    expect(await fetch.fetch('example.com/m')).toEqual(['v1.1.0', 'v1.0.0']);
+    expect(await createVersionsFetcher({ runner }).fetch('example.com/m')).toEqual([
+      'v1.3.0',
+      'v1.0.0',
+    ]);
+  });
+
+  it('keeps the list when retract data is absent', async () => {
+    const runner = new FakeRunner(() => ({
+      stdout: listJson({ versions: ['v1.0.0', 'v1.1.0'] }),
+      stderr: '',
+      exitCode: 0,
+    }));
+
+    expect(await createVersionsFetcher({ runner }).fetch('example.com/m')).toEqual([
+      'v1.1.0',
+      'v1.0.0',
+    ]);
   });
 
   it('caches per module', async () => {
-    let calls = 0;
-    const fetch = fetcher(async (url) => {
-      calls += 1;
-      if (url.endsWith('/@latest')) {
-        return JSON.stringify({ Version: 'v1.0.0' });
-      }
-      if (url.endsWith('.mod')) {
-        return 'module example.com/m\n';
-      }
-      return 'v1.0.0';
-    });
+    const runner = new FakeRunner(() => ({
+      stdout: listJson({ versions: ['v1.0.0'] }),
+      stderr: '',
+      exitCode: 0,
+    }));
+    const fetch = createVersionsFetcher({ runner });
 
     await fetch.fetch('rsc.io/quote');
-    const afterFirst = calls;
     await fetch.fetch('rsc.io/quote');
 
-    expect(calls).toBe(afterFirst);
+    expect(runner.calls).toHaveLength(1);
   });
 
-  it('never requests a private module path', async () => {
-    const runner = new FakeRunner('example.com/*');
-    const requested: string[] = [];
-    const fetch = fetcher(async (url) => {
-      requested.push(url);
-      return 'v1.0.0';
-    }, runner);
+  it('fails with the toolchain message when go list cannot run', async () => {
+    const runner = new FakeRunner(() => ({
+      stdout: '',
+      stderr: 'module lookup disabled by GOPROXY=off',
+      exitCode: 1,
+    }));
 
-    expect(await fetch.fetch('example.com/private')).toEqual([]);
-    expect(requested).toEqual([]);
-  });
-
-  it('fails closed when go env cannot be read', async () => {
-    const fetch = fetcher(async () => 'v1.0.0', new FakeRunner('', 1));
-
-    await expect(fetch.fetch('rsc.io/quote')).rejects.toThrow(/GOPRIVATE/);
+    await expect(createVersionsFetcher({ runner }).fetch('rsc.io/quote')).rejects.toBeInstanceOf(
+      GoCommandError,
+    );
   });
 });

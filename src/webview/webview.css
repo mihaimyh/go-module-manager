@@ -813,6 +813,16 @@ tbody th.col-module .chip {
   font-size: 10px;
 }
 
+.path-link {
+  font-family: var(--gmm-mono);
+  font-size: 10px;
+  text-align: right;
+}
+
+.version-prerelease {
+  margin: 8px 0 0;
+}
+
 .controls {
   display: flex;
   align-items: center;

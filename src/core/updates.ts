@@ -16,6 +16,7 @@ export interface ResolveFailure {
 export interface ResolveReport {
   readonly done: number;
   readonly total: number;
+  readonly project: string;
   readonly model: PanelModel;
   readonly failure?: ResolveFailure;
 }
@@ -71,7 +72,7 @@ export async function resolveProjects(
             : { includePrereleases: options.includePrereleases }),
         });
         done += 1;
-        onProgress({ done, total, model: current });
+        onProgress({ done, total, project: project.name, model: current });
       } catch (error) {
         const failure: ResolveFailure = {
           manifestPath: project.manifestPath,
@@ -81,7 +82,7 @@ export async function resolveProjects(
         };
         current = mergeFailure(current, failure);
         done += 1;
-        onProgress({ done, total, model: current, failure });
+        onProgress({ done, total, project: project.name, model: current, failure });
       }
     }
   };

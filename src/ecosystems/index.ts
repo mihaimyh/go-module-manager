@@ -9,8 +9,6 @@ export interface DetectOptions {
   readonly goPath?: string;
   /** Live advisory source; when absent the adapter only reads and resolves. */
   readonly advisories?: AdvisorySource;
-  /** Plain-text HTTP seam for the proxy version list. */
-  readonly fetchText?: (url: string) => Promise<string>;
 }
 
 /**
@@ -23,33 +21,29 @@ const byToolchain = new Map<string, EcosystemAdapter>();
 function adapterFor(
   goPath: string,
   advisories: AdvisorySource | undefined,
-  fetchText: ((url: string) => Promise<string>) | undefined,
 ): EcosystemAdapter {
-  const key = `${goPath}:${advisories === undefined ? 'plain' : 'advisory'}:${
-    fetchText === undefined ? 'text' : 'versions'
-  }`;
+  const key = `${goPath}:${advisories === undefined ? 'plain' : 'advisory'}`;
   const existing = byToolchain.get(key);
   if (existing !== undefined) {
     return existing;
   }
   const adapter =
-    goPath === 'go' && advisories === undefined && fetchText === undefined
+    goPath === 'go' && advisories === undefined
       ? goAdapter
       : createGoAdapter(createExecGoRunner(goPath), {
           ...(advisories === undefined ? {} : { advisories }),
-          ...(fetchText === undefined ? {} : { fetchText }),
         });
   byToolchain.set(key, adapter);
   return adapter;
 }
 
-/** Finds every ecosystem with a manifest at the root or one level down. */
+/** Finds every ecosystem with a manifest by walking the tree (ADR 0009). */
 export function detectAdapters(
   workspaceRoot: string,
   options: DetectOptions = {},
 ): readonly EcosystemAdapter[] {
   const candidates: readonly EcosystemAdapter[] = [
-    adapterFor(options.goPath ?? 'go', options.advisories, options.fetchText),
+    adapterFor(options.goPath ?? 'go', options.advisories),
   ];
 
   return candidates.filter(

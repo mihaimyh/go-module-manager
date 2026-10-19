@@ -37,6 +37,9 @@ describe('resolveProjects', () => {
     expect(peak).toBeLessThanOrEqual(2);
     expect(reports.map((report) => report.done)).toEqual([1, 2, 3]);
     expect(reports.every((report) => report.total === 3)).toBe(true);
+    expect(reports.map((report) => report.project)).toEqual(
+      expect.arrayContaining(['example.com/p0', 'example.com/p1', 'example.com/p2']),
+    );
     expect(model.projects).toHaveLength(3);
   });
 

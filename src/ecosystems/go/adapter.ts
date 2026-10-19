@@ -13,7 +13,6 @@ import { createVersionsFetcher } from './versions';
 
 export interface GoAdapterOptions {
   readonly advisories?: AdvisorySource;
-  readonly fetchText?: (url: string) => Promise<string>;
 }
 
 export function createGoAdapter(
@@ -23,14 +22,7 @@ export function createGoAdapter(
   const resolver = createProjectResolver(runner);
   const updater = createUpdater(runner);
   const source = options.advisories;
-  const versions = createVersionsFetcher({
-    fetchText:
-      options.fetchText ??
-      (async () => {
-        throw new Error('version lookup is not configured');
-      }),
-    runner,
-  });
+  const versions = createVersionsFetcher({ runner });
 
   return {
     id: 'go',

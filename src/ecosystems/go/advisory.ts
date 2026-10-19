@@ -70,9 +70,15 @@ export function matchAdvisories(
         )
         .sort(compareVersions)[0];
 
+      const introduced = affecting
+        .map((range) => normalizeBound(range.introduced))
+        .filter((bound): bound is string => bound !== undefined)
+        .sort(compareVersions)[0];
+
       matches.push({
         id: document.id,
         summary: document.summary,
+        ...(introduced === undefined ? {} : { introduced }),
         ...(fixedIn === undefined ? {} : { fixedIn }),
       });
     }
@@ -107,3 +113,4 @@ function normalizeBound(bound: string | undefined): string | undefined {
   }
   return bound;
 }
+

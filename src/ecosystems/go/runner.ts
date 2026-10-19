@@ -55,6 +55,12 @@ export interface GoInvocation {
 }
 
 let invocationSink: ((invocation: GoInvocation) => void) | undefined;
+let sessionSignal: AbortSignal | undefined;
+
+/** Host-owned cancellation for in-flight go work when every surface closes. */
+export function setGoSessionSignal(signal: AbortSignal | undefined): void {
+  sessionSignal = signal;
+}
 
 /**
  * Diagnostics only: the host installs a sink so every go command and its
@@ -89,7 +95,9 @@ export function createExecGoRunner(goPath = 'go'): GoRunner {
             timeout: options.timeoutMs,
             maxBuffer: 10 * 1024 * 1024,
             windowsHide: true,
-            ...(options.signal ? { signal: options.signal } : {}),
+            ...((options.signal ?? sessionSignal)
+              ? { signal: options.signal ?? sessionSignal }
+              : {}),
           },
           (error, stdout, stderr) => {
             if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

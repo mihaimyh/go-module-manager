@@ -4,6 +4,7 @@ import type { PanelModel } from './model';
 export interface ResolveProgress {
   readonly done: number;
   readonly total: number;
+  readonly project?: string;
 }
 
 export type HostToWebview =
@@ -64,4 +65,9 @@ export type WebviewToHost =
       readonly manifests: readonly string[];
     }
   | { readonly type: 'install-scanner' }
-  | { readonly type: 'open-panel' };
+  | { readonly type: 'open-panel' }
+  | {
+      readonly type: 'open-manifest';
+      readonly manifestPath: string;
+      readonly name: string;
+    };
