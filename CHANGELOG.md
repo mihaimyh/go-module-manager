@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.24
+
+### Fixed
+
+- Panel actions stay disabled while any host work is in flight: confirm dialogs, Check for updates, single and bulk update (including Undo), go mod tidy, reachability scans, govulncheck install, impact preview, and recovery repairs.
+- `go mod tidy` shows a success toast when it finishes, and is disabled when no project is in scope.
+
 ## 0.1.23
 
 ### Added
