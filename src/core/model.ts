@@ -35,6 +35,13 @@ export interface AdvisoryReport {
   readonly stale: boolean;
 }
 
+/** A `replace` target: a different module path/version, or a local directory. */
+export interface ModuleReplacement {
+  readonly path: string;
+  /** Absent for a filesystem replacement. */
+  readonly version?: string;
+}
+
 /** A manifest and the code it governs: one `go.mod`, one `pubspec.yaml`. */
 export interface ProjectInput {
   readonly manifestPath: string;
@@ -49,6 +56,8 @@ export interface DependencyInput {
   readonly name: string;
   readonly declaredVersion: string;
   readonly transitive: boolean;
+  /** Set when go.mod replaces this module before the build. */
+  readonly replacement?: ModuleReplacement;
 }
 
 /** What the ecosystem's resolver decided for one dependency. */
@@ -57,6 +66,7 @@ export interface ResolvedDependency {
   readonly version: string;
   readonly candidate?: string;
   readonly kind?: UpdateKind;
+  readonly replacement?: ModuleReplacement;
 }
 
 export interface DependencyRow {
@@ -71,6 +81,8 @@ export interface DependencyRow {
   readonly candidate?: string;
   readonly kind: UpdateKind;
   readonly advisories: readonly Advisory[];
+  /** Set when go.mod replaces this module; name stays the declared path. */
+  readonly replacement?: ModuleReplacement;
   /** The last failed update for this row, shown until the next read. */
   readonly failure?: string;
   /** True when the advisory lookup skipped this row because its path is private. */
@@ -149,6 +161,7 @@ export function assemblePanelModel(
     for (const dependency of project.dependencies) {
       const entry = byName.get(dependency.name);
       const selected = selectCandidate(entry, options.includePrereleases === true);
+      const replacement = entry?.replacement ?? dependency.replacement;
 
       rows.push({
         id: `${project.manifestPath}#${dependency.name}`,
@@ -159,6 +172,7 @@ export function assemblePanelModel(
         ...(entry?.version === undefined ? {} : { resolvedVersion: entry.version }),
         transitive: dependency.transitive,
         ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
+        ...(replacement === undefined ? {} : { replacement }),
         kind: selected.kind,
         advisories: [],
       });

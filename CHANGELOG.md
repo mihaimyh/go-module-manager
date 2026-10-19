@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.17
+
+### Added
+
+- `replace` directives are shown: a **replaced** chip, the replacement's version as selected, and **Replaced by** in the inspector with links to the replacement's pkg.go.dev page and repository. A local replacement shows its path and has no external link.
+- Replaced rows are excluded from single, bulk and advisory updates; GMM never rewrites a `replace`.
+
+### Fixed
+
+- pkg.go.dev and repository links point to the module that actually builds (the replacement) instead of the declared path.
 ## 0.1.16
 
 ### Fixed

@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ResolveOptions } from '../../core/adapter';
-import type { ResolvedDependency, ResolvedProject } from '../../core/model';
+import type {
+  ModuleReplacement,
+  ResolvedDependency,
+  ResolvedProject,
+} from '../../core/model';
 import { failureKindFor, GoCommandError } from './errors';
 import { parseModuleList, type ModuleListEntry } from './goJson';
 import { firstLine, goEnv, type GoRunner } from './runner';
@@ -87,16 +91,34 @@ async function resolveProject(
 function toResolvedDependency(
   entry: ModuleListEntry & { Path: string; Version: string },
 ): ResolvedDependency {
+  const replacement = replacementOf(entry);
   const update = entry.Update?.Version;
-  const candidate = update !== undefined && !isPseudoVersion(update) ? update : undefined;
+  // A replace wins over the build list: the declared version is not the code
+  // that runs, and `go get <declared path>@<update>` would not change it.
+  const candidate =
+    replacement === undefined && update !== undefined && !isPseudoVersion(update)
+      ? update
+      : undefined;
 
   return {
     name: entry.Path,
-    version: entry.Version,
+    version: replacement?.version ?? entry.Version,
     ...(candidate === undefined
       ? {}
       : { candidate, kind: classifyGoUpdate(entry.Version, candidate) }),
+    ...(replacement === undefined ? {} : { replacement }),
   };
+}
+
+function replacementOf(
+  entry: ModuleListEntry & { Path: string; Version: string },
+): ModuleReplacement | undefined {
+  const path = entry.Replace?.Path;
+  if (path === undefined) {
+    return undefined;
+  }
+  const version = entry.Replace?.Version;
+  return version === undefined ? { path } : { path, version };
 }
 
 function hasVersion(

@@ -2,7 +2,7 @@
   "name": "go-module-manager",
   "displayName": "GMM — Go Module Manager",
   "description": "See and move the Go dependencies of a workspace without touching code you did not ask for.",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "publisher": "mihaimyh",
   "license": "MIT",
   "icon": "assets/icon.png",

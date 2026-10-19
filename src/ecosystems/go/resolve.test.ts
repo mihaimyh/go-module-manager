@@ -67,6 +67,39 @@ describe('resolving a project', () => {
     expect(runner.calls[0]?.options.env.GOWORK).toBe('off');
   });
 
+  it('uses the replacement for the selected version and suppresses updates', async () => {
+    const manifestPath = moduleWithFiles('module example.com/a\n');
+    const stdout = [
+      JSON.stringify({
+        Path: 'github.com/upstream/lib',
+        Version: 'v1.2.0',
+        Replace: { Path: 'github.com/me/fork', Version: 'v1.3.0' },
+        Update: { Path: 'github.com/upstream/lib', Version: 'v1.4.0' },
+      }),
+      JSON.stringify({
+        Path: 'example.com/local',
+        Version: 'v1.0.0',
+        Replace: { Path: '../local', Dir: 'C:\\local' },
+      }),
+    ].join('\n');
+    const runner = new FakeRunner(() => ({ stdout, stderr: '', exitCode: 0 }));
+
+    const resolved = await createProjectResolver(runner).resolve(manifestPath);
+
+    expect(resolved.dependencies).toEqual([
+      {
+        name: 'github.com/upstream/lib',
+        version: 'v1.3.0',
+        replacement: { path: 'github.com/me/fork', version: 'v1.3.0' },
+      },
+      {
+        name: 'example.com/local',
+        version: 'v1.0.0',
+        replacement: { path: '../local' },
+      },
+    ]);
+  });
+
   it('caches by the content of go.mod and go.sum', async () => {
     const manifestPath = moduleWithFiles('module example.com/a\n');
     const runner = new FakeRunner(() => ({ stdout: LIST_JSON, stderr: '', exitCode: 0 }));

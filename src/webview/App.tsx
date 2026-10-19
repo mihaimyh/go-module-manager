@@ -652,6 +652,18 @@ function Row({
                 : 'advisory'}
             </span>
           ) : null}
+          {row.replacement === undefined ? null : (
+            <span
+              className="chip replaced"
+              title={`Replaced by ${row.replacement.path}${
+                row.replacement.version === undefined
+                  ? ' (local directory)'
+                  : ` ${row.replacement.version}`
+              }`}
+            >
+              replaced
+            </span>
+          )}
         </div>
       </th>
       <td className="col-owning mono muted" title={row.project}>
@@ -703,14 +715,16 @@ function Row({
             >
               Copy module path
             </button>
-            <a
-              role="menuitem"
-              href={`https://pkg.go.dev/${row.name}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open on pkg.go.dev
-            </a>
+            {pkgUrl(row) === undefined ? null : (
+              <a
+                role="menuitem"
+                href={pkgUrl(row)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open on pkg.go.dev
+              </a>
+            )}
           </div>
         </details>
       </td>
@@ -725,6 +739,9 @@ function UpdateCell({
   readonly row: DependencyRow;
   readonly unresolved: boolean;
 }): JSX.Element {
+  if (row.replacement !== undefined) {
+    return <span className="muted mono">replaced</span>;
+  }
   if (!row.candidate) {
     if (row.resolvedVersion === undefined) {
       return (
@@ -809,8 +826,10 @@ function Inspector({
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
   useEffect(() => {
-    onVersions(row.name);
-  }, [row.name]);
+    if (row.replacement === undefined) {
+      onVersions(row.name);
+    }
+  }, [row.name, row.replacement]);
 
   const known = [row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString);
   const options = [...new Set([...(versions ?? []), ...known])]
@@ -832,15 +851,17 @@ function Inspector({
             required by <span className="mono">{row.project}</span>
           </p>
         </div>
-        <a
-          className="icon-button"
-          href={`https://pkg.go.dev/${row.name}`}
-          target="_blank"
-          rel="noreferrer"
-          title="Open on pkg.go.dev"
-        >
-          <ExternalLinkIcon />
-        </a>
+        {pkgUrl(row) === undefined ? null : (
+          <a
+            className="icon-button"
+            href={pkgUrl(row)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open on pkg.go.dev"
+          >
+            <ExternalLinkIcon />
+          </a>
+        )}
       </header>
 
       <dl className="facts">
@@ -865,23 +886,48 @@ function Inspector({
         <div>
           <dt>Candidate</dt>
           <dd className={row.candidate ? 'mono candidate' : 'mono muted'}>
-            {row.candidate ?? 'none on this path'}
+            {row.replacement === undefined
+              ? (row.candidate ?? 'none on this path')
+              : 'managed by replace'}
           </dd>
         </div>
         <div>
           <dt>Type</dt>
           <dd className="muted">{row.transitive ? 'indirect dependency' : 'direct dependency'}</dd>
         </div>
+        {row.replacement === undefined ? null : (
+          <div>
+            <dt>Replaced by</dt>
+            <dd className="mono">
+              {pkgUrl(row) === undefined ? (
+                <span>
+                  {row.replacement.path} (local directory)
+                </span>
+              ) : (
+                <a href={pkgUrl(row)} target="_blank" rel="noreferrer">
+                  {row.replacement.path}
+                  {row.replacement.version === undefined
+                    ? ''
+                    : ` ${row.replacement.version}`}
+                </a>
+              )}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Links</dt>
           <dd className="links">
-            <a href={`https://pkg.go.dev/${row.name}`} target="_blank" rel="noreferrer">
-              pkg.go.dev
-            </a>
-            {repositoryUrl(row.name) === undefined ? null : (
+            {pkgUrl(row) === undefined ? (
+              <span className="muted">local replacement</span>
+            ) : (
+              <a href={pkgUrl(row)} target="_blank" rel="noreferrer">
+                pkg.go.dev
+              </a>
+            )}
+            {repositoryUrlFor(row) === undefined ? null : (
               <>
                 {' · '}
-                <a href={repositoryUrl(row.name)} target="_blank" rel="noreferrer">
+                <a href={repositoryUrlFor(row)} target="_blank" rel="noreferrer">
                   repository
                 </a>
               </>
@@ -890,37 +936,46 @@ function Inspector({
         </div>
       </dl>
 
-      <div className="controls">
-        <Dropdown
-          label="Version to install"
-          value={chosen}
-          options={options.map((candidate) => ({
-            value: candidate,
-            label: candidate,
-          }))}
-          onChange={setVersion}
-          grow
-        />
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy || chosen === row.resolvedVersion}
-          title={
-            chosen === row.resolvedVersion
-              ? 'Already resolved at this version'
-              : `Run go get ${row.name}@${chosen}`
-          }
-          onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
-        >
-          Update
-        </button>
-      </div>
+      {row.replacement === undefined ? (
+        <>
+          <div className="controls">
+            <Dropdown
+              label="Version to install"
+              value={chosen}
+              options={options.map((candidate) => ({
+                value: candidate,
+                label: candidate,
+              }))}
+              onChange={setVersion}
+              grow
+            />
+            <button
+              type="button"
+              className="button primary"
+              disabled={busy || chosen === row.resolvedVersion}
+              title={
+                chosen === row.resolvedVersion
+                  ? 'Already resolved at this version'
+                  : `Run go get ${row.name}@${chosen}`
+              }
+              onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
+            >
+              Update
+            </button>
+          </div>
 
-      {versionsPending ? (
-        <p className="version-note muted">
-          <span className="spinner" aria-hidden="true" /> Loading all versions…
+          {versionsPending ? (
+            <p className="version-note muted">
+              <span className="spinner" aria-hidden="true" /> Loading all versions…
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="replace-note">
+          Version controlled by the replace directive. GMM leaves it untouched; edit{' '}
+          <code className="mono">go.mod</code> to change it.
         </p>
-      ) : null}
+      )}
 
       {row.advisoryUnchecked === true ? (
         <p className="unchecked-note mono">
@@ -937,9 +992,11 @@ function Inspector({
         />
       ))}
 
-      <p className="footnote mono">
-        Runs <code>go get</code> in {row.project} with workspace mode off.
-      </p>
+      {row.replacement === undefined ? (
+        <p className="footnote mono">
+          Runs <code>go get</code> in {row.project} with workspace mode off.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -954,6 +1011,7 @@ function AdvisoryCard({
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
   const fix = advisoryFixOffer(advisory, row.resolvedVersion);
+  const reason = fix.offered ? undefined : fix.reason;
 
   return (
     <div className={advisory.reachable === true ? 'callout reachable' : 'callout'}>
@@ -978,7 +1036,7 @@ function AdvisoryCard({
           >
             Open advisory <ArrowRightIcon />
           </a>
-          {fix.offered ? (
+          {fix.offered && row.replacement === undefined ? (
             <button
               type="button"
               className="button primary compact"
@@ -988,7 +1046,11 @@ function AdvisoryCard({
               Update to {fix.version}
             </button>
           ) : (
-            <span className="muted callout-reason">{fix.reason}</span>
+            <span className="muted callout-reason">
+              {row.replacement === undefined
+                ? (reason ?? 'No update is available for this advisory.')
+                : 'Replaced module: update the replacement instead.'}
+            </span>
           )}
         </div>
       </div>
@@ -1016,6 +1078,24 @@ function repositoryUrl(modulePath: string): string | undefined {
     return undefined;
   }
   return `https://${match[1]}/${match[2]}/${match[3]}`;
+}
+
+/** The module whose code actually runs: the replace target, or the declared path. */
+function packagePath(row: DependencyRow): string | undefined {
+  if (row.replacement === undefined) {
+    return row.name;
+  }
+  return row.replacement.version === undefined ? undefined : row.replacement.path;
+}
+
+function pkgUrl(row: DependencyRow): string | undefined {
+  const path = packagePath(row);
+  return path === undefined ? undefined : `https://pkg.go.dev/${path}`;
+}
+
+function repositoryUrlFor(row: DependencyRow): string | undefined {
+  const path = packagePath(row);
+  return path === undefined ? undefined : repositoryUrl(path);
 }
 
 function ageOf(iso: string): string {

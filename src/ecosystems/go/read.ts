@@ -2,13 +2,14 @@ import { basename, join } from 'node:path';
 import {
   assemblePanelModel,
   type DependencyInput,
+  type ModuleReplacement,
   type PanelModel,
   type ProjectFailure,
   type ProjectInput,
 } from '../../core/model';
 import { findManifestDirectories } from '../discovery';
 import { failureKindFor, GoCommandError } from './errors';
-import { parseGoModJson, type GoModJson } from './goJson';
+import { parseGoModJson, type GoModJson, type GoModRequire } from './goJson';
 import { goEnv, type GoRunner } from './runner';
 
 const READ_TIMEOUT_MS = 60_000;
@@ -85,17 +86,41 @@ function toProject(directory: string, name: string, goMod: GoModJson): ProjectIn
       if (!require.Path || !require.Version) {
         return undefined;
       }
+      const replacement = replacementFor(require, goMod);
       return {
         manifestPath,
         project: name,
         name: require.Path,
         declaredVersion: require.Version,
         transitive: require.Indirect === true,
+        ...(replacement === undefined ? {} : { replacement }),
       };
     })
     .filter((dependency) => dependency !== undefined);
 
   return { manifestPath, name, dependencies };
+}
+
+/**
+ * A replace can pin one version (`replace a v1 => b v2`) or every version
+ * (`replace a => b v2`); the exact pin wins over the wildcard.
+ */
+function replacementFor(
+  require: GoModRequire,
+  goMod: GoModJson,
+): ModuleReplacement | undefined {
+  const candidates = (goMod.Replace ?? []).filter(
+    (entry) => entry.Old?.Path === require.Path,
+  );
+  const exact = candidates.find((entry) => entry.Old?.Version === require.Version);
+  const wildcard = candidates.find((entry) => entry.Old?.Version === undefined);
+  const target = (exact ?? wildcard)?.New;
+  if (target?.Path === undefined) {
+    return undefined;
+  }
+  return target.Version === undefined
+    ? { path: target.Path }
+    : { path: target.Path, version: target.Version };
 }
 
 function messageOf(stderr: string, fallback: string): string {

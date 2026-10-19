@@ -4,13 +4,23 @@ export interface GoModRequire {
   readonly Indirect?: boolean;
 }
 
+export interface GoModModule {
+  readonly Path?: string;
+  readonly Version?: string;
+}
+
+export interface GoModReplace {
+  readonly Old?: GoModModule;
+  readonly New?: GoModModule;
+}
+
 export interface GoModJson {
   readonly Module?: {
     readonly Path?: string;
   };
   readonly Go?: string;
   readonly Require?: readonly GoModRequire[];
-  readonly Replace?: readonly unknown[];
+  readonly Replace?: readonly GoModReplace[];
   readonly Exclude?: readonly unknown[];
 }
 
@@ -20,6 +30,12 @@ export interface ModuleListEntry {
   readonly Time?: string;
   readonly Main?: boolean;
   readonly Dir?: string;
+  readonly Replace?: {
+    readonly Path?: string;
+    readonly Version?: string;
+    readonly Dir?: string;
+    readonly GoMod?: string;
+  };
   readonly Update?: {
     readonly Path?: string;
     readonly Version?: string;

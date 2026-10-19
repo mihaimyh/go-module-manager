@@ -30,6 +30,10 @@ The modules and versions the go command will actually use, computed from every r
 The version of a module in the build list of a given build context. Never lower than any requirement on that module, and not necessarily equal to the version written in `go.mod`.
 _Avoid_: installed version, current version, locked version
 
+**Replacement**:
+The target of a `replace` directive: another module path and version, or a local directory. The replacement, not the declared requirement, decides which code and selected version build. GMM shows it but never edits the directive.
+_Avoid_: override, fork (a replacement can be a fork, but a fork is not necessarily a replacement)
+
 **Build context**:
 The set of modules a version is resolved against: one module on its own, or every module listed in `go.work`. The same module can have a different selected version in each.
 _Avoid_: environment

@@ -1134,3 +1134,20 @@ body.vscode-high-contrast {
 .dropdown-option[aria-selected='true'] {
   font-weight: 600;
 }
+
+/* A go.mod replace changes which module path and version actually build. */
+
+.chip.replaced {
+  color: var(--gmm-purple);
+  border-color: var(--gmm-purple);
+}
+
+.replace-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--gmm-border);
+  border-radius: 2px;
+  color: var(--gmm-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
