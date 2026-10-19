@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advisoryFix } from './advisoryAction';
+import { advisoryFixOffer } from './advisoryAction';
 
 const advisory = (fixedIn?: string) => ({
   id: 'GO-0000-00001',
@@ -7,38 +7,48 @@ const advisory = (fixedIn?: string) => ({
   ...(fixedIn === undefined ? {} : { fixedIn }),
 });
 
-describe('advisoryFix', () => {
+describe('advisoryFixOffer', () => {
   it('offers a fix strictly above the resolved version', () => {
-    expect(advisoryFix(advisory('v1.5.2'), 'v1.5.1')).toEqual({
+    expect(advisoryFixOffer(advisory('v1.5.2'), 'v1.5.1')).toEqual({
       offered: true,
       version: 'v1.5.2',
     });
   });
 
   it('explains a missing fixed version', () => {
-    expect(advisoryFix(advisory(), 'v1.5.1')).toEqual({
+    expect(advisoryFixOffer(advisory(), 'v1.5.1')).toEqual({
       offered: false,
       reason: 'No fixed version is published for this module.',
     });
   });
 
-  it('refuses to offer the resolved version or a downgrade', () => {
-    expect(advisoryFix(advisory('v1.5.1'), 'v1.5.1')).toEqual({
+  it('refuses a downgrade or the resolved version', () => {
+    expect(advisoryFixOffer(advisory('v1.5.0'), 'v1.5.1')).toEqual({
       offered: false,
-      reason: 'The resolved version is already at or above the fix.',
+      reason: 'The advisory data is out of date for the resolved version.',
     });
-    expect(advisoryFix(advisory('v1.5.0'), 'v1.5.1')).toEqual({
+  });
+
+  it('refuses a prerelease fix', () => {
+    expect(advisoryFixOffer(advisory('v1.6.0-rc.1'), 'v1.5.1')).toEqual({
       offered: false,
-      reason: 'The resolved version is already at or above the fix.',
+      reason: 'The fix is only available as a prerelease.',
+    });
+  });
+
+  it('refuses a fix on a different major path', () => {
+    expect(advisoryFixOffer(advisory('v2.0.0'), 'v1.5.1')).toEqual({
+      offered: false,
+      reason: 'The fix is a different major module path.',
     });
   });
 
   it('refuses when either version is unknown', () => {
-    expect(advisoryFix(advisory('v1.5.2'), undefined)).toEqual({
+    expect(advisoryFixOffer(advisory('v1.5.2'), undefined)).toEqual({
       offered: false,
       reason: 'The resolved version is unknown.',
     });
-    expect(advisoryFix(advisory('go1.21.2'), 'v1.5.1')).toEqual({
+    expect(advisoryFixOffer(advisory('go1.21.2'), 'v1.5.1')).toEqual({
       offered: false,
       reason: 'The fixed version cannot be compared.',
     });

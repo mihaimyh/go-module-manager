@@ -53,17 +53,22 @@ export function matchAdvisories(
 
     const matches: Advisory[] = [];
     for (const document of byModule.get(dependency.name) ?? []) {
-      const affecting = document.ranges
-        .filter((range) => range.module === dependency.name)
-        .find((range) => affects(range, dependency.version));
-      if (affecting === undefined) {
+      const affecting = document.ranges.filter(
+        (range) => range.module === dependency.name && affects(range, dependency.version),
+      );
+      if (affecting.length === 0) {
         continue;
       }
 
-      const fixedIn =
-        affecting.fixed !== undefined && parseVersion(affecting.fixed) !== undefined
-          ? affecting.fixed
-          : undefined;
+      // Any fixed bound of an affecting range is above the resolved version;
+      // take the lowest, because that is the first release that clears it.
+      const fixedIn = affecting
+        .flatMap((range) =>
+          range.fixed === undefined || parseVersion(range.fixed) === undefined
+            ? []
+            : [range.fixed],
+        )
+        .sort(compareVersions)[0];
 
       matches.push({
         id: document.id,

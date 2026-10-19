@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
-import { advisoryFix } from '../core/advisoryAction';
+import { advisoryFixOffer } from '../core/advisoryAction';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
@@ -658,7 +658,7 @@ function AdvisoryCard({
   readonly row: DependencyRow;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
-  const fix = advisoryFix(advisory, row.resolvedVersion);
+  const fix = advisoryFixOffer(advisory, row.resolvedVersion);
 
   return (
     <div className="callout">

@@ -102,3 +102,23 @@ describe('version keying and odd bounds', () => {
     ).toBe(1);
   });
 });
+
+describe('multiple ranges for one module', () => {
+  it('reports the lowest fixed bound among the affecting ranges', () => {
+    const document: AdvisoryDocument = {
+      id: 'GO-0000-00010',
+      summary: 'two intervals',
+      ranges: [
+        { module: 'example.com/m', introduced: 'v1.0.0' },
+        { module: 'example.com/m', introduced: 'v1.0.0', fixed: 'v1.4.0' },
+        { module: 'example.com/m', introduced: 'v1.0.0', fixed: 'v1.3.0' },
+      ],
+    };
+
+    const result = matchAdvisories([document], [
+      { name: 'example.com/m', version: 'v1.2.0' },
+    ]);
+
+    expect(result.get('example.com/m@v1.2.0')?.[0]?.fixedIn).toBe('v1.3.0');
+  });
+});
