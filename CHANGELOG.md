@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7
+
+### Fixed
+
+- Tab counts use the current tab's total ("21 of 43" on Updates), not the workspace total.
+- Bulk selection follows what is visible: hidden checked rows are reported as "hidden by filters" and are not part of the action or its button count.
+- The `indirect` and `advisory` chips stay visible when a module path is long.
+
 ## 0.1.6
 
 ### Fixed

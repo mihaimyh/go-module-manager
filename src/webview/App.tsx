@@ -63,7 +63,11 @@ export function App({
   onInstallScanner,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>(() =>
-    window.location.hash === '#vulnerabilities' ? 'vulnerabilities' : 'dependencies',
+    window.location.hash === '#vulnerabilities'
+      ? 'vulnerabilities'
+      : window.location.hash === '#updates'
+        ? 'updates'
+        : 'dependencies',
   );
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -89,18 +93,15 @@ export function App({
     [projects],
   );
   const updates = rows.filter((row) => row.candidate !== undefined);
+  const advisoryRows = rows.filter((row) => row.advisories.length > 0);
+  const tabRows =
+    tab === 'updates' ? updates : tab === 'vulnerabilities' ? advisoryRows : rows;
   const advisoryIds = new Set(rows.flatMap((row) => row.advisories.map((a) => a.id)));
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const byTab =
-      tab === 'updates'
-        ? updates
-        : tab === 'vulnerabilities'
-          ? rows.filter((row) => row.advisories.length > 0)
-          : rows;
 
-    return byTab.filter((row) => {
+    return tabRows.filter((row) => {
       if (directOnly && row.transitive) {
         return false;
       }
@@ -109,7 +110,7 @@ export function App({
       }
       return needle === '' || row.name.toLowerCase().includes(needle);
     });
-  }, [rows, updates, tab, query, moduleFilter, directOnly]);
+  }, [tabRows, query, moduleFilter, directOnly]);
 
   // Open on the row that needs attention: an advisory first, then an update.
   const activeId =
@@ -118,11 +119,12 @@ export function App({
     rows.find((row) => row.candidate !== undefined)?.id ??
     rows[0]?.id;
   const selected = rows.find((row) => row.id === activeId);
-  const selectedRows = rows.filter((row) => checked.has(row.id));
-  const updatable = selectedRows.filter((row) => row.candidate !== undefined);
+  const visibleSelected = visible.filter((row) => checked.has(row.id));
+  const hiddenSelected = Math.max(0, checked.size - visibleSelected.length);
+  const updatable = visibleSelected.filter((row) => row.candidate !== undefined);
   const targetManifests = (() => {
-    if (selectedRows.length > 0) {
-      return [...new Set(selectedRows.map((row) => row.manifestPath))];
+    if (visibleSelected.length > 0) {
+      return [...new Set(visibleSelected.map((row) => row.manifestPath))];
     }
     return selected === undefined ? [] : [selected.manifestPath];
   })();
@@ -186,7 +188,7 @@ export function App({
             Go modules
           </span>
           <span className="count-chip">
-            {visible.length} of {rows.length}
+            {visible.length} of {tabRows.length}
           </span>
           <span className="divider" aria-hidden="true" />
           <div className="search">
@@ -281,9 +283,12 @@ export function App({
           </span>
         ) : null}
         {checked.size > 0 ? (
-          <span className="selection-count">{checked.size} selected</span>
+          <span className="selection-count">
+            {visibleSelected.length} selected
+            {hiddenSelected > 0 ? ` · ${hiddenSelected} hidden by filters` : ''}
+          </span>
         ) : null}
-        {checked.size > 0 ? (
+        {visibleSelected.length > 0 ? (
           <button
             type="button"
             className="button primary compact"
@@ -292,8 +297,8 @@ export function App({
               updatable.length === 0
                 ? 'Nothing in this selection has an update'
                 : `Update ${updatable.length} dependencies${
-                    checked.size - updatable.length > 0
-                      ? `; ${checked.size - updatable.length} selected have no update`
+                    visibleSelected.length - updatable.length > 0
+                      ? `; ${visibleSelected.length - updatable.length} selected have no update`
                       : ''
                   }`
             }

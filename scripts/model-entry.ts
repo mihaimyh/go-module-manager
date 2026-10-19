@@ -15,7 +15,7 @@ const advisoryFile = join(process.cwd(), 'test', 'fixtures', 'advisories', 'go.j
 
 const GOLDEN: Record<string, string> = {
   'mod edit -json': 'mod-edit.json',
-  'list -m -u -json all': 'mod-list.json',
+  'list -m -u -e -json all': 'mod-list.json',
 };
 
 /** Replays the recorded toolchain output for the webview harness. */

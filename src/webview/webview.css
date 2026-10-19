@@ -409,7 +409,21 @@ tbody td {
 }
 
 tbody th.col-module {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 500;
+}
+
+tbody th.col-module .path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+tbody th.col-module .chip {
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 
 .col-check {
