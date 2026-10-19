@@ -3,9 +3,9 @@ import * as vscode from 'vscode';
 export const GMM_VIEW_ID = 'gmm.dependencies';
 
 /**
- * Activity Bar entry. VS Code only lets an activity-bar icon open a side-bar
- * view, so this empty tree + welcome text is the required shell. When it
- * becomes visible we open the real UI in the editor.
+ * Activity Bar entry. VS Code requires a side-bar view for the icon; this empty
+ * tree is only a trigger. On show we open the editor panel and leave the GMM
+ * side bar so the welcome shell does not stay on screen.
  */
 export function registerActivityBarLauncher(openPanel: () => void): vscode.Disposable {
   const tree = vscode.window.createTreeView(GMM_VIEW_ID, {
@@ -20,6 +20,12 @@ export function registerActivityBarLauncher(openPanel: () => void): vscode.Dispo
     // an editor webview; doing it inline with the visibility change is flaky.
     setTimeout(() => {
       openPanel();
+      // Drop the empty GMM side bar and show Explorer again (or close the side
+      // bar if Explorer is unavailable).
+      void vscode.commands.executeCommand('workbench.view.explorer').then(
+        undefined,
+        () => vscode.commands.executeCommand('workbench.action.closeSidebar'),
+      );
     }, 0);
   };
 

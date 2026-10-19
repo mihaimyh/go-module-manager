@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.22
+
+### Changed
+
+- Clicking the Activity Bar icon opens the editor panel and switches back to Explorer, so the empty GMM side bar does not stay visible.
+
 ## 0.1.21
 
 ### Fixed
