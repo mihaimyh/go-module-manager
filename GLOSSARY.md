@@ -41,12 +41,20 @@ _Avoid_: environment
 **Minimum Version Selection (MVS)**:
 Go's rule that the selected version of a module is the highest minimum version any requirement asks for. It is why a single requirement line cannot be lowered on its own.
 
+**Add**:
+Declaring a new requirement in a module's `go.mod` at a chosen version. Because no package from that module is imported yet, Go records it as an indirect requirement until source code imports it.
+_Avoid_: install (in Go `go install` builds an executable; kept only as the Browse button label)
+
 **Update**:
 Raising a requirement so that a higher version is selected. The build list keeps every module it had.
 
 **Downgrade**:
 Selecting a version lower than some requirement asks for. Only achievable by also lowering or dropping those dependents, so it can remove modules from the build list. Never equivalent to editing one version number.
 _Avoid_: rollback (implies restoring a previous state)
+
+**Remove**:
+Dropping a requirement from a module's `go.mod` (`@none`). Under Minimum Version Selection, any other requirements in that module that depend on the removed module are also lowered or dropped.
+_Avoid_: uninstall (kept only as the Inspector button label)
 
 **Update candidate**:
 A newer version of the same module path that the toolchain reports as available, excluding prereleases and retracted versions. Hosting-site APIs (for example GitHub Releases) are not a source of candidates.
@@ -74,8 +82,8 @@ The Go module whose `go.mod` contains a given requirement; the project that owns
 _Avoid_: host module
 
 **Consolidation**:
-Comparing, across the modules of one workspace, the versions they require of the same module path. Divergence is shown, not rewritten.
-_Avoid_: sync, alignment (that is the write action, not the view)
+Comparing, across the modules of one workspace, the versions they require of the same module path and moving selected owning modules to a single chosen version.
+_Avoid_: workspace sync (which writes the `go.work` build list back into every module indiscriminately)
 
 **Workspace sync**:
 Writing the workspace build list's versions back into every member module's `go.mod` in one operation. A bulk write, distinct from consolidation.

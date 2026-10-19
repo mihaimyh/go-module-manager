@@ -6,6 +6,7 @@ import {
   isPseudoVersion,
   parseVersion,
   pickerVersions,
+  removeSafety,
   versionApplyOffer,
 } from './version';
 
@@ -160,3 +161,39 @@ describe('commitPinUpdateNote', () => {
     ).toBeUndefined();
   });
 });
+
+describe('removeSafety', () => {
+  it('allows immediate removal when go mod why reports unused and preview has no collateral changes', () => {
+    expect(
+      removeSafety({
+        moduleName: 'github.com/spf13/cobra',
+        whyText: '# github.com/spf13/cobra\n(main module does not need module github.com/spf13/cobra)',
+        previewImpact: [
+          { name: 'github.com/spf13/cobra', kind: 'removed', from: 'v1.10.2' },
+        ],
+      }),
+    ).toEqual({
+      needsConfirm: false,
+      importedByCode: false,
+      collateral: [],
+    });
+  });
+
+  it('requires confirmation when go mod why shows active imports or MVS drops dependents', () => {
+    expect(
+      removeSafety({
+        moduleName: 'rsc.io/sampler',
+        whyText: '# rsc.io/sampler\nexample.com/a\nrsc.io/quote\nrsc.io/sampler',
+        previewImpact: [
+          { name: 'rsc.io/quote', kind: 'removed', from: 'v1.5.2' },
+          { name: 'rsc.io/sampler', kind: 'removed', from: 'v1.3.0' },
+        ],
+      }),
+    ).toEqual({
+      needsConfirm: true,
+      importedByCode: true,
+      collateral: [{ name: 'rsc.io/quote', kind: 'removed', from: 'v1.5.2' }],
+    });
+  });
+});
+

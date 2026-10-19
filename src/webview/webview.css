@@ -1244,3 +1244,125 @@ body.vscode-high-contrast {
   font-size: 11px;
   line-height: 16px;
 }
+
+/* Browse tab and Visual Studio Solution checklist */
+
+.browse-table tbody tr.browse-row {
+  height: auto;
+}
+
+.browse-table tbody td {
+  height: auto;
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.browse-cell {
+  white-space: normal;
+}
+
+.browse-synopsis {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 16px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.browse-subpackage {
+  margin: 2px 0 0;
+  font-size: 10px;
+}
+
+.browse-summary {
+  margin: 8px 0 0 !important;
+  font-size: 12px !important;
+  line-height: 17px;
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.browse-footer {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--gmm-border-soft);
+}
+
+.col-status {
+  width: 24%;
+}
+
+.col-imported {
+  width: 14%;
+  text-align: right;
+}
+
+.chip.installed {
+  margin-left: 0;
+  color: var(--gmm-success);
+  border-color: var(--gmm-success);
+}
+
+.chip.private {
+  color: var(--gmm-info);
+  border-color: var(--gmm-info);
+}
+
+.project-checklist {
+  margin-top: 16px;
+  border: 1px solid var(--gmm-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.project-checklist table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.project-checklist thead th {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.project-checklist tbody tr {
+  height: 28px;
+  cursor: default;
+}
+
+.project-checklist tbody td {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.project-checklist .col-check {
+  width: 28px;
+  padding-left: 8px;
+}
+
+.project-checklist label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.indirect-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.import-copy {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+

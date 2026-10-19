@@ -4,6 +4,7 @@ import {
   mergeResolution,
   mergeRowFailure,
   withAdvisories,
+  withPrereleaseFilter,
   type DependencyInput,
   type ProjectInput,
   type ResolvedDependency,
@@ -273,3 +274,28 @@ describe('withAdvisories', () => {
     expect(skipped.rows[0]?.advisoryUnchecked).toBe(true);
   });
 });
+
+describe('withPrereleaseFilter', () => {
+  it('reveals and hides a prerelease candidate when toggling the toolbar checkbox', () => {
+    const base = assemblePanelModel(
+      project([{ name: 'rsc.io/quote', version: 'v1.5.1' }]),
+      new Map(),
+    );
+    const resolvedModel = mergeResolution(base, {
+      manifestPath: MANIFEST,
+      dependencies: [
+        {
+          name: 'rsc.io/quote',
+          version: 'v1.5.1',
+          candidate: 'v2.0.0-rc.1',
+          kind: 'prerelease',
+        },
+      ],
+    });
+
+    expect(withPrereleaseFilter(resolvedModel.rows, false)[0]?.candidate).toBeUndefined();
+    expect(withPrereleaseFilter(resolvedModel.rows, true)[0]?.candidate).toBe('v2.0.0-rc.1');
+    expect(withPrereleaseFilter(resolvedModel.rows, true)[0]?.kind).toBe('prerelease');
+  });
+});
+

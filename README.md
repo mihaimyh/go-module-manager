@@ -14,10 +14,11 @@ Or search for **GMM** in the Extensions view. Marketplace page: [mihaimyh.go-mod
 
 ## What it does
 
-- Lists every project in the workspace and its direct and indirect dependencies, read live from the Go toolchain.
-- Fills in available updates in the background, cached by the content of `go.mod` and `go.sum`.
+- Opens on **Browse** so you can search `pkg.go.dev` (or resolve private modules via `go list -m -versions -json`) and install, update, or uninstall Go modules across one or more `go.mod` files.
+- Lists every project in the workspace and its direct and indirect dependencies under **Installed**, read live from the Go toolchain.
+- Fills in available updates in the background, cached by the content of `go.mod` and `go.sum`, with a top-bar **Include prerelease** toggle.
 - Shows published advisories as an amber **advisory** chip, and — only after you ask — the ones reachable from your own code as a red **reachable** chip with the symbol that reaches them.
-- Updates a single dependency or a whole selection: one `go get` per project, with one level of undo.
+- Updates, installs, consolidates, or removes (`@none`) dependencies across checked projects: one `go get` per project, with one level of undo.
 - Runs `go mod tidy` only from its own confirmed button. Never after an update.
 - Sends no telemetry, runs no builds or tests, and never edits `.go` files.
 
@@ -30,8 +31,8 @@ Or search for **GMM** in the Extensions view. Marketplace page: [mihaimyh.go-mod
 
 1. Open a folder that contains one or more `go.mod` files.
 2. Click the **Go Modules** icon in the Activity Bar to open the panel in the editor, press the GMM button in the Explorer toolbar, use the editor-title button while a `go.mod` is open, press **Ctrl+Alt+G** (**Cmd+Alt+G** on macOS), or run **GMM: Open Go Module Manager** from the Command Palette.
-3. Declared versions appear immediately; updates fill in per project.
-4. Select rows to update them together, or open the inspector to pick a version.
+3. Search and install modules from **Browse**, or switch to **Installed** / **Updates** / **Consolidate** to manage workspace dependencies.
+4. Select rows to update them together, or open the inspector to pick a version, check target projects, or uninstall.
 5. Open **Vulnerabilities** and press **Scan reachable** for a precise check.
 
 The precise scan runs `go run golang.org/x/vuln/cmd/govulncheck@latest`, so it never depends on an installed binary and always uses the current scanner. Installing the CLI is a separate, optional action.
@@ -44,9 +45,9 @@ The precise scan runs `go run golang.org/x/vuln/cmd/govulncheck@latest`, so it n
 
 ## Scope
 
-v0.1 covers reading, updating, tidying and advisory checking for Go modules. Not included yet: browsing or installing new modules, consolidation writes across a workspace, major-version import migration, and other ecosystems.
+v0.1 covers browsing, installing, reading, updating, consolidating, uninstalling, tidying and advisory checking for Go modules. Not included yet: major-version import migration and other ecosystems.
 
-Private module paths matching `GOPRIVATE` / `GONOPROXY` are never sent to the advisory database.
+Private module paths matching `GOPRIVATE` / `GONOPROXY` are never sent to `pkg.go.dev` or the advisory database.
 
 ## Development
 

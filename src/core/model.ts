@@ -80,6 +80,8 @@ export interface DependencyRow {
   readonly resolvedVersion?: string;
   readonly transitive: boolean;
   readonly candidate?: string;
+  /** Kept when a prerelease candidate was hidden by default so the toolbar toggle can reveal it. */
+  readonly prereleaseCandidate?: string;
   readonly kind: UpdateKind;
   readonly advisories: readonly Advisory[];
   /** Set when go.mod replaces this module; name stays the declared path. */
@@ -173,6 +175,9 @@ export function assemblePanelModel(
         ...(entry?.version === undefined ? {} : { resolvedVersion: entry.version }),
         transitive: dependency.transitive,
         ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
+        ...(selected.prereleaseCandidate === undefined
+          ? {}
+          : { prereleaseCandidate: selected.prereleaseCandidate }),
         ...(replacement === undefined ? {} : { replacement }),
         kind: selected.kind,
         advisories: [],
@@ -333,11 +338,42 @@ export function mergeResolution(
         resolvedVersion: entry.version,
         transitive: row.transitive,
         ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
+        ...(selected.prereleaseCandidate === undefined
+          ? {}
+          : { prereleaseCandidate: selected.prereleaseCandidate }),
         kind: selected.kind,
         advisories: row.advisories,
       };
     }),
   };
+}
+
+export function withPrereleaseFilter(
+  rows: readonly DependencyRow[],
+  includePrereleases: boolean,
+): readonly DependencyRow[] {
+  return rows.map((row) => {
+    const raw = row.candidate ?? row.prereleaseCandidate;
+    if (raw === undefined) {
+      return row;
+    }
+    if (!includePrereleases && isPrerelease(raw)) {
+      const { candidate: _dropped, ...rest } = row;
+      return {
+        ...rest,
+        prereleaseCandidate: raw,
+        kind: 'none',
+      };
+    }
+    if (includePrereleases && row.candidate === undefined && row.prereleaseCandidate !== undefined) {
+      return {
+        ...row,
+        candidate: row.prereleaseCandidate,
+        kind: 'prerelease',
+      };
+    }
+    return row;
+  });
 }
 
 /**
@@ -347,13 +383,24 @@ export function mergeResolution(
 function selectCandidate(
   entry: ResolvedDependency | undefined,
   includePrereleases: boolean,
-): { readonly candidate?: string; readonly kind: UpdateKind } {
+): {
+  readonly candidate?: string;
+  readonly prereleaseCandidate?: string;
+  readonly kind: UpdateKind;
+} {
   const candidate = entry?.candidate;
   if (candidate === undefined || candidate === entry?.version) {
     return { kind: 'none' };
   }
-  if (!includePrereleases && isPrerelease(candidate)) {
-    return { kind: 'none' };
+  if (isPrerelease(candidate)) {
+    if (!includePrereleases) {
+      return { prereleaseCandidate: candidate, kind: 'none' };
+    }
+    return {
+      candidate,
+      prereleaseCandidate: candidate,
+      kind: entry?.kind ?? 'prerelease',
+    };
   }
   return { candidate, kind: entry?.kind ?? 'none' };
 }

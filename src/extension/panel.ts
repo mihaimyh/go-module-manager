@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { PreviewResult } from '../core/adapter';
+import type { ModuleMetadata, PreviewResult, SearchResponse } from '../core/adapter';
 import type { HostToWebview, ReleaseNotes, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import type { PanelHandlers } from './handlers';
@@ -119,6 +119,37 @@ export class GmmPanel {
 
   static postPreview(result: PreviewResult): void {
     GmmPanel.send({ type: 'preview', result });
+  }
+
+  static postSearchLoading(query: string, append?: boolean): void {
+    GmmPanel.send({
+      type: 'search-loading',
+      query,
+      ...(append === undefined ? {} : { append }),
+    });
+  }
+
+  static postSearchResults(
+    response: SearchResponse,
+    options: { readonly append?: boolean; readonly error?: string } = {},
+  ): void {
+    GmmPanel.send({
+      type: 'search-results',
+      response,
+      ...(options.append === undefined ? {} : { append: options.append }),
+      ...(options.error === undefined ? {} : { error: options.error }),
+    });
+  }
+
+  static postModuleMetadata(
+    modulePath: string,
+    metadata: ModuleMetadata | undefined,
+  ): void {
+    GmmPanel.send({
+      type: 'module-metadata',
+      modulePath,
+      ...(metadata === undefined ? {} : { metadata }),
+    });
   }
 
   /** A label means work started; no label means it finished. */

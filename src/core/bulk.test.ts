@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planBulkUpdate, shouldRetryFailedGroup } from './bulk';
+import { planBulkUpdate, planTargetChanges, shouldRetryFailedGroup } from './bulk';
 import type { DependencyRow } from './model';
 
 function row(
@@ -69,3 +69,29 @@ describe('shouldRetryFailedGroup', () => {
     expect(shouldRetryFailedGroup(1, 'verification')).toBe(false);
   });
 });
+
+describe('planTargetChanges', () => {
+  it('groups explicit per-project targets (add, consolidate, remove) by owning manifest', () => {
+    const groups = planTargetChanges([
+      { manifestPath: '/repo/b/go.mod', name: 'github.com/spf13/cobra', version: 'v1.10.2' },
+      { manifestPath: '/repo/a/go.mod', name: 'github.com/spf13/cobra', version: 'v1.10.2' },
+      { manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote', version: 'none' },
+      { manifestPath: '/repo/a/go.mod', name: 'github.com/spf13/cobra', version: 'v1.10.2' },
+    ]);
+
+    expect(groups).toEqual([
+      {
+        manifestPath: '/repo/a/go.mod',
+        changes: [
+          { name: 'github.com/spf13/cobra', version: 'v1.10.2' },
+          { name: 'rsc.io/quote', version: 'none' },
+        ],
+      },
+      {
+        manifestPath: '/repo/b/go.mod',
+        changes: [{ name: 'github.com/spf13/cobra', version: 'v1.10.2' }],
+      },
+    ]);
+  });
+});
+

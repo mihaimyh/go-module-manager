@@ -1,3 +1,4 @@
+import type { TargetChange } from '../core/bulk';
 import type { DependencySelection, RecoveryAction } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import type { PanelHandlers } from './handlers';
@@ -16,7 +17,10 @@ interface RawMessage {
   readonly version?: string;
   readonly modulePath?: string;
   readonly selection?: unknown;
+  readonly targets?: unknown;
   readonly manifests?: unknown;
+  readonly query?: string;
+  readonly pageToken?: string;
 }
 
 const RECOVERY_ACTIONS: readonly RecoveryAction[] = [
@@ -35,6 +39,26 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
   // `ready` can arrive before the first model exists; still acknowledge it.
   if (message.type === 'ready') {
     target.postModel();
+    return;
+  }
+
+  if (message.type === 'search' && typeof message.query === 'string') {
+    target.handlers.onSearch(
+      message.query,
+      typeof message.pageToken === 'string' ? message.pageToken : undefined,
+    );
+    return;
+  }
+
+  if (
+    message.type === 'module-metadata' &&
+    typeof message.modulePath === 'string' &&
+    message.modulePath.trim() !== ''
+  ) {
+    target.handlers.onModuleMetadata(
+      message.modulePath,
+      typeof message.version === 'string' ? message.version : undefined,
+    );
     return;
   }
 
@@ -60,18 +84,27 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
       if (
         typeof message.manifestPath !== 'string' ||
         typeof message.name !== 'string' ||
-        typeof message.version !== 'string'
+        typeof message.version !== 'string' ||
+        message.name.trim() === '' ||
+        message.version.trim() === ''
       ) {
         return;
       }
-      const known = model.rows.some(
-        (row) => row.manifestPath === message.manifestPath && row.name === message.name,
+      const knownProject = model.projects.some(
+        (project) => project.manifestPath === message.manifestPath,
       );
-      if (known) {
+      if (knownProject) {
         target.handlers.onUpdate({
           manifestPath: message.manifestPath,
           changes: [{ name: message.name, version: message.version }],
         });
+      }
+      return;
+    }
+    case 'apply-targets': {
+      const targets = toTargetChanges(message.targets, model);
+      if (targets.length > 0) {
+        target.handlers.onApplyTargets(targets);
       }
       return;
     }
@@ -94,7 +127,7 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
     case 'versions':
       if (
         typeof message.modulePath === 'string' &&
-        model.rows.some((row) => row.name === message.modulePath)
+        message.modulePath.trim() !== ''
       ) {
         target.handlers.onVersions(message.modulePath);
       }
@@ -142,6 +175,42 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
       }
       return;
   }
+}
+
+function toTargetChanges(value: unknown, model: PanelModel): TargetChange[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const knownManifests = new Set(model.projects.map((project) => project.manifestPath));
+  const targets: TargetChange[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const { manifestPath, name, version } = entry as {
+      manifestPath?: unknown;
+      name?: unknown;
+      version?: unknown;
+    };
+    if (
+      typeof manifestPath !== 'string' ||
+      typeof name !== 'string' ||
+      typeof version !== 'string' ||
+      name.trim() === '' ||
+      version.trim() === '' ||
+      !knownManifests.has(manifestPath)
+    ) {
+      continue;
+    }
+    const key = `${manifestPath}#${name}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    targets.push({ manifestPath, name, version });
+  }
+  return targets;
 }
 
 function toSelection(value: unknown, model: PanelModel): DependencySelection[] {

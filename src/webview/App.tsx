@@ -1,20 +1,36 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { PreviewResult } from '../core/adapter';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ModuleMetadata, PreviewResult, SearchResult } from '../core/adapter';
+import { advisoryFixOffer, affectedRangeText } from '../core/advisoryAction';
+import {
+  browseModuleStatus,
+  defaultCheckedManifests,
+  initialTabFromHash,
+  planInspectorTargets,
+  type Tab,
+} from '../core/browse';
+import type { TargetChange } from '../core/bulk';
+import { groupedDivergence } from '../core/consolidate';
 import type {
   DependencySelection,
   RecoveryAction,
   ReleaseNotes,
   ResolveProgress,
 } from '../core/messages';
-import { advisoryFixOffer, affectedRangeText } from '../core/advisoryAction';
-import { groupedDivergence } from '../core/consolidate';
+import {
+  withPrereleaseFilter,
+  type Advisory,
+  type DependencyRow,
+  type FailureKind,
+  type PanelModel,
+  type ProjectSummary,
+} from '../core/model';
 import { hasReachable } from '../core/scan';
-import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import { sortRows, type SortKey, type SortState } from '../core/sort';
 import {
   commitPinUpdateNote,
   compareVersions,
   pickerVersions,
+  removeSafety,
   versionApplyOffer,
   type UpdateKind,
 } from '../core/version';
@@ -49,7 +65,7 @@ const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly 
   unknown: { action: 'retry', label: 'Retry' },
 };
 
-type Tab = 'dependencies' | 'updates' | 'vulnerabilities' | 'consolidate';
+const SEARCH_DEBOUNCE_MS = 300;
 
 interface AppProps {
   readonly model: PanelModel | undefined;
@@ -60,6 +76,7 @@ interface AppProps {
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+  readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
   readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;
@@ -74,6 +91,13 @@ interface AppProps {
   readonly onReleaseNotes: (modulePath: string, version: string) => void;
   readonly preview?: PreviewResult;
   readonly onPreview: (manifestPath: string, name: string, version: string) => void;
+  readonly searchItems: readonly SearchResult[];
+  readonly searchLoading: boolean;
+  readonly searchNextPageToken?: string;
+  readonly searchError?: string;
+  readonly onSearch: (query: string, pageToken?: string) => void;
+  readonly moduleMetadata: Readonly<Record<string, ModuleMetadata | null>>;
+  readonly onModuleMetadata: (modulePath: string, version?: string) => void;
 }
 
 export function App({
@@ -85,6 +109,7 @@ export function App({
   onRefresh,
   onRecover,
   onUpdate,
+  onApplyTargets,
   onBulkUpdate,
   onTidy,
   onScan,
@@ -99,23 +124,26 @@ export function App({
   onReleaseNotes,
   preview,
   onPreview,
+  searchItems,
+  searchLoading,
+  searchNextPageToken,
+  searchError,
+  onSearch,
+  moduleMetadata,
+  onModuleMetadata,
 }: AppProps): JSX.Element {
-  const [tab, setTab] = useState<Tab>(() =>
-    window.location.hash === '#vulnerabilities'
-      ? 'vulnerabilities'
-      : window.location.hash === '#updates'
-        ? 'updates'
-        : window.location.hash === '#consolidate'
-          ? 'consolidate'
-          : 'dependencies',
-  );
+  const [tab, setTab] = useState<Tab>(() => initialTabFromHash(window.location.hash));
   const [query, setQuery] = useState('');
+  const [browseQuery, setBrowseQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
   const [directOnly, setDirectOnly] = useState(true);
+  const [includePrereleases, setIncludePrereleases] = useState(false);
   const [sort, setSort] = useState<SortState>({ key: 'module', direction: 'asc' });
   const [selectedId, setSelectedId] = useState<string>();
+  const [selectedBrowseName, setSelectedBrowseName] = useState<string>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const [compact, setCompact] = useState(() => window.innerWidth < 720);
+  const initialSearchFired = useRef(false);
 
   useEffect(() => {
     const onResize = (): void => setCompact(window.innerWidth < 720);
@@ -129,7 +157,26 @@ export function App({
     }
   }, [clearSignal]);
 
-  const rows = model?.rows ?? [];
+  // Populate Browse on first workspace load and debounce subsequent Browse queries.
+  useEffect(() => {
+    if (!model) {
+      return;
+    }
+    if (!initialSearchFired.current) {
+      initialSearchFired.current = true;
+      onSearch(browseQuery);
+      return;
+    }
+    const timer = setTimeout(() => {
+      onSearch(browseQuery);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [Boolean(model), browseQuery]);
+
+  const rows = useMemo(
+    () => withPrereleaseFilter(model?.rows ?? [], includePrereleases),
+    [model?.rows, includePrereleases],
+  );
   const projects = model?.projects ?? [];
   const failedManifests = useMemo(
     () =>
@@ -143,8 +190,7 @@ export function App({
   const updates = rows.filter((row) => row.candidate !== undefined);
 
   // Tab counts follow Direct only and the owning module, so a tab never shows
-  // a number the list cannot display. The search box narrows within a tab; it
-  // only changes the "x of y" chip.
+  // a number the list cannot display.
   const scopedRows = rows.filter(
     (row) =>
       (!directOnly || !row.transitive) &&
@@ -195,18 +241,27 @@ export function App({
     );
   };
 
-  // Open on the row that needs attention within the current view: an advisory
-  // first, then an update. A row hidden by the tab or filters is not selected.
   const activeId =
     sorted.find((row) => row.id === selectedId)?.id ??
     sorted.find((row) => row.advisories.length > 0)?.id ??
     sorted.find((row) => row.candidate !== undefined)?.id ??
     sorted[0]?.id;
   const selected = rows.find((row) => row.id === activeId);
+
+  const activeBrowseItem =
+    searchItems.find((item) => item.name === selectedBrowseName) ?? searchItems[0];
+
   const visibleSelected = visible.filter((row) => checked.has(row.id));
   const hiddenSelected = Math.max(0, checked.size - visibleSelected.length);
   const updatable = visibleSelected.filter((row) => row.candidate !== undefined);
   const targetManifests = (() => {
+    if (tab === 'browse') {
+      if (moduleFilter !== 'all') {
+        const filtered = projects.find((project) => project.name === moduleFilter);
+        return filtered === undefined ? [] : [filtered.manifestPath];
+      }
+      return projects.map((project) => project.manifestPath);
+    }
     if (visibleSelected.length > 0) {
       return [...new Set(visibleSelected.map((row) => row.manifestPath))];
     }
@@ -242,7 +297,6 @@ export function App({
   }
 
   const checking = progress !== undefined && progress.done < progress.total;
-  // Any in-flight host work (writes, confirms, scans) or update lookup locks actions.
   const locked = busy !== undefined || checking;
   const statusLabel =
     busy ??
@@ -293,20 +347,37 @@ export function App({
             Go modules
           </span>
           <span className="count-chip">
-            {visible.length} of {tabRows.length}
+            {tab === 'browse'
+              ? `${searchItems.length} results`
+              : `${visible.length} of ${tabRows.length}`}
           </span>
           <span className="divider" aria-hidden="true" />
           <div className="search">
             <span className="search-icon" aria-hidden="true">
               <SearchIcon />
             </span>
-            <input
-              type="search"
-              placeholder="Filter by module path"
-              aria-label="Filter by module path"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
+            {tab === 'browse' ? (
+              <input
+                type="search"
+                placeholder="Search Go modules…"
+                aria-label="Search Go modules"
+                value={browseQuery}
+                onChange={(event) => setBrowseQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    onSearch(browseQuery);
+                  }
+                }}
+              />
+            ) : (
+              <input
+                type="search"
+                placeholder="Filter by module path"
+                aria-label="Filter by module path"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            )}
           </div>
           {projects.length > 1 ? (
             <Dropdown
@@ -325,11 +396,21 @@ export function App({
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={directOnly}
-              onChange={(event) => setDirectOnly(event.target.checked)}
+              checked={includePrereleases}
+              onChange={(event) => setIncludePrereleases(event.target.checked)}
             />
-            Direct only
+            Include prerelease
           </label>
+          {tab === 'browse' ? null : (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={directOnly}
+                onChange={(event) => setDirectOnly(event.target.checked)}
+              />
+              Direct only
+            </label>
+          )}
         </div>
 
         <div className="toolbar-actions">
@@ -381,7 +462,13 @@ export function App({
 
       <nav className="tabs" aria-label="Views">
         <TabButton
-          label="Dependencies"
+          label="Browse"
+          count={0}
+          active={tab === 'browse'}
+          onClick={() => setTab('browse')}
+        />
+        <TabButton
+          label="Installed"
           count={scopedRows.length}
           active={tab === 'dependencies'}
           onClick={() => setTab('dependencies')}
@@ -405,13 +492,13 @@ export function App({
           active={tab === 'consolidate'}
           onClick={() => setTab('consolidate')}
         />
-        {checked.size > 0 ? (
+        {tab !== 'browse' && checked.size > 0 ? (
           <span className="selection-count">
             {visibleSelected.length} selected
             {hiddenSelected > 0 ? ` · ${hiddenSelected} hidden by filters` : ''}
           </span>
         ) : null}
-        {visibleSelected.length > 0 ? (
+        {tab !== 'browse' && visibleSelected.length > 0 ? (
           <button
             type="button"
             className="button primary compact"
@@ -467,134 +554,189 @@ export function App({
       ) : null}
 
       <main className="workspace">
-        <section className="list" aria-label="Dependencies">
-          {tab === 'vulnerabilities' ? (
-            <div className="scan-note">
-              <span className="scan-text">
-                {scanState}
-                {model.advisoryData === undefined
-                  ? ''
-                  : ` Advisories ${model.advisoryData.stale ? 'may be stale' : `from ${ageOf(model.advisoryData.fetchedAt)}`}.`}
-                {' '}
-                Scan reachable contacts the Go vulnerability database.
-              </span>
-              <button
-                type="button"
-                className="button secondary compact"
-                disabled={locked || targetManifests.length === 0}
-                title="Run govulncheck through go run for the selected project"
-                onClick={() => onScan(targetManifests)}
-              >
-                Scan reachable
-              </button>
-              <button
-                type="button"
-                className="link-button"
-                disabled={locked}
-                title="Scans already use the latest govulncheck through go run; install it only if you also want the CLI."
-                onClick={onInstallScanner}
-              >
-                Install govulncheck
-              </button>
-            </div>
-          ) : null}
-          {tab === 'consolidate' ? (
-            visible.length === 0 ? null : (
-              <ConsolidateGroups
-                groups={groupedDivergence(visible)}
-                activeId={activeId}
-                onSelect={setSelectedId}
-              />
-            )
-          ) : (
-          <table>
-            <thead>
-              <tr>
-                <th scope="col" className="col-check">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all dependencies"
-                    checked={allChecked}
-                    onChange={toggleAll}
-                  />
-                </th>
-                <SortHeader label="Module" column="module" sort={sort} onSort={toggleSort} />
-                <SortHeader
-                  label="Owning module"
-                  column="owning"
-                  sort={sort}
-                  onSort={toggleSort}
-                  className="col-owning"
-                />
-                <SortHeader
-                  label="Required"
-                  column="declared"
-                  sort={sort}
-                  onSort={toggleSort}
-                  className="col-version col-required"
-                />
-                <SortHeader
-                  label="Selected"
-                  column="resolved"
-                  sort={sort}
-                  onSort={toggleSort}
-                  className="col-version"
-                />
-                <SortHeader
-                  label="Update"
-                  column="update"
-                  sort={sort}
-                  onSort={toggleSort}
-                  className="col-update"
-                />
-                <SortHeader
-                  label="Type"
-                  column="kind"
-                  sort={sort}
-                  onSort={toggleSort}
-                  className="col-type"
-                />
-                <th scope="col" className="col-actions">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((row) => (
-                <Row
-                  key={row.id}
-                  row={row}
-                  selected={row.id === activeId}
-                  checked={checked.has(row.id)}
-                  unresolved={failedManifests.has(row.manifestPath)}
-                  onSelect={() => setSelectedId(row.id)}
-                  onToggle={() => toggle(row.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-          )}
-          {visible.length === 0 ? (
-            <EmptyState
-              tab={tab}
-              query={query}
-              hiddenByDirect={hiddenByDirect}
-              onClearQuery={() => setQuery('')}
-              onShowIndirect={() => setDirectOnly(false)}
+        <section className="list" aria-label={tab === 'browse' ? 'Browse modules' : 'Dependencies'}>
+          {tab === 'browse' ? (
+            <BrowseList
+              items={searchItems}
+              rows={rows}
+              moduleFilter={moduleFilter}
+              selectedName={activeBrowseItem?.name}
+              loading={searchLoading}
+              nextPageToken={searchNextPageToken}
+              error={searchError}
+              query={browseQuery}
+              onSelect={setSelectedBrowseName}
+              onLoadMore={() => onSearch(browseQuery, searchNextPageToken)}
+              onRetry={() => onSearch(browseQuery)}
             />
-          ) : null}
+          ) : (
+            <>
+              {tab === 'vulnerabilities' ? (
+                <div className="scan-note">
+                  <span className="scan-text">
+                    {scanState}
+                    {model.advisoryData === undefined
+                      ? ''
+                      : ` Advisories ${model.advisoryData.stale ? 'may be stale' : `from ${ageOf(model.advisoryData.fetchedAt)}`}.`}
+                    {' '}
+                    Scan reachable contacts the Go vulnerability database.
+                  </span>
+                  <button
+                    type="button"
+                    className="button secondary compact"
+                    disabled={locked || targetManifests.length === 0}
+                    title="Run govulncheck through go run for the selected project"
+                    onClick={() => onScan(targetManifests)}
+                  >
+                    Scan reachable
+                  </button>
+                  <button
+                    type="button"
+                    className="link-button"
+                    disabled={locked}
+                    title="Scans already use the latest govulncheck through go run; install it only if you also want the CLI."
+                    onClick={onInstallScanner}
+                  >
+                    Install govulncheck
+                  </button>
+                </div>
+              ) : null}
+              {tab === 'consolidate' ? (
+                visible.length === 0 ? null : (
+                  <ConsolidateGroups
+                    groups={groupedDivergence(visible)}
+                    activeId={activeId}
+                    onSelect={setSelectedId}
+                  />
+                )
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="col-check">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all dependencies"
+                          checked={allChecked}
+                          onChange={toggleAll}
+                        />
+                      </th>
+                      <SortHeader label="Module" column="module" sort={sort} onSort={toggleSort} />
+                      <SortHeader
+                        label="Owning module"
+                        column="owning"
+                        sort={sort}
+                        onSort={toggleSort}
+                        className="col-owning"
+                      />
+                      <SortHeader
+                        label="Required"
+                        column="declared"
+                        sort={sort}
+                        onSort={toggleSort}
+                        className="col-version col-required"
+                      />
+                      <SortHeader
+                        label="Selected"
+                        column="resolved"
+                        sort={sort}
+                        onSort={toggleSort}
+                        className="col-version"
+                      />
+                      <SortHeader
+                        label="Update"
+                        column="update"
+                        sort={sort}
+                        onSort={toggleSort}
+                        className="col-update"
+                      />
+                      <SortHeader
+                        label="Type"
+                        column="kind"
+                        sort={sort}
+                        onSort={toggleSort}
+                        className="col-type"
+                      />
+                      <th scope="col" className="col-actions">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((row) => (
+                      <Row
+                        key={row.id}
+                        row={row}
+                        selected={row.id === activeId}
+                        checked={checked.has(row.id)}
+                        unresolved={failedManifests.has(row.manifestPath)}
+                        onSelect={() => setSelectedId(row.id)}
+                        onToggle={() => toggle(row.id)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {visible.length === 0 ? (
+                <EmptyState
+                  tab={tab}
+                  query={query}
+                  hiddenByDirect={hiddenByDirect}
+                  onClearQuery={() => setQuery('')}
+                  onShowIndirect={() => setDirectOnly(false)}
+                />
+              ) : null}
+            </>
+          )}
         </section>
 
         <aside className="inspector" aria-label="Details">
-          {selected ? (
+          {tab === 'browse' ? (
+            activeBrowseItem ? (
+              <BrowseInspector
+                key={activeBrowseItem.name}
+                item={activeBrowseItem}
+                projects={projects}
+                rows={rows}
+                moduleFilter={moduleFilter}
+                includePrereleases={includePrereleases}
+                versions={versions[activeBrowseItem.name]}
+                versionsPending={versionsLoading[activeBrowseItem.name] === true}
+                busy={locked}
+                metadata={moduleMetadata[activeBrowseItem.name]}
+                releaseNotes={releaseNotes}
+                why={why}
+                preview={preview}
+                directOnly={directOnly}
+                onVersions={onVersions}
+                onModuleMetadata={onModuleMetadata}
+                onReleaseNotes={onReleaseNotes}
+                onWhy={onWhy}
+                onPreview={onPreview}
+                onApplyTargets={onApplyTargets}
+                onOpenManifest={onOpenManifest}
+                onRevealIndirectInInstalled={() => {
+                  setDirectOnly(false);
+                  setTab('dependencies');
+                }}
+              />
+            ) : (
+              <p className="empty">Select a module from the Browse list.</p>
+            )
+          ) : selected ? (
             <Inspector
               key={selected.id}
               row={selected}
+              tab={tab}
+              projects={projects}
+              allRows={rows}
+              includePrereleases={includePrereleases}
               versions={versions[selected.name]}
               versionsPending={versionsLoading[selected.name] === true}
               busy={locked}
               onVersions={onVersions}
               onUpdate={onUpdate}
+              onApplyTargets={onApplyTargets}
               onOpenManifest={onOpenManifest}
               why={why[`${selected.manifestPath}#${selected.name}`]}
               onWhy={onWhy}
@@ -608,6 +750,694 @@ export function App({
           )}
         </aside>
       </main>
+    </div>
+  );
+}
+
+function BrowseList({
+  items,
+  rows,
+  moduleFilter,
+  selectedName,
+  loading,
+  nextPageToken,
+  error,
+  query,
+  onSelect,
+  onLoadMore,
+  onRetry,
+}: {
+  readonly items: readonly SearchResult[];
+  readonly rows: readonly DependencyRow[];
+  readonly moduleFilter: string;
+  readonly selectedName?: string;
+  readonly loading: boolean;
+  readonly nextPageToken?: string;
+  readonly error?: string;
+  readonly query: string;
+  readonly onSelect: (name: string) => void;
+  readonly onLoadMore: () => void;
+  readonly onRetry: () => void;
+}): JSX.Element {
+  return (
+    <div className="browse-container">
+      {items.length > 0 ? (
+        <table className="browse-table">
+          <thead>
+            <tr>
+              <th scope="col">Module</th>
+              <th scope="col" className="col-status">
+                Status
+              </th>
+              <th scope="col" className="col-version">
+                Latest
+              </th>
+              <th scope="col" className="col-imported">
+                Imported by
+              </th>
+              <th scope="col" className="col-actions">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const status = browseModuleStatus(item.name, rows, moduleFilter);
+              const isSelected = item.name === selectedName;
+              const importPath = item.matchedPackage ?? item.name;
+              const subpkg =
+                item.matchedPackage !== undefined && item.matchedPackage !== item.name
+                  ? item.matchedPackage.startsWith(`${item.name}/`)
+                    ? item.matchedPackage.slice(item.name.length)
+                    : item.matchedPackage
+                  : undefined;
+
+              return (
+                <tr
+                  key={item.name}
+                  className={`browse-row${isSelected ? ' selected' : ''}`}
+                  onClick={() => onSelect(item.name)}
+                >
+                  <th scope="row" className="col-module">
+                    <div className="browse-cell">
+                      <div className="module-cell">
+                        <span className="mono path" title={item.name}>
+                          {item.name}
+                        </span>
+                        {subpkg === undefined ? null : (
+                          <span className="chip" title={`Matched package ${item.matchedPackage}`}>
+                            via {subpkg}
+                          </span>
+                        )}
+                        {item.private === true ? <span className="chip">private</span> : null}
+                      </div>
+                      {item.summary === '' ? null : (
+                        <p className="browse-synopsis muted" title={item.summary}>
+                          {item.summary}
+                        </p>
+                      )}
+                    </div>
+                  </th>
+                  <td className="col-status">
+                    {status.badge === undefined ? (
+                      <span className="muted mono">—</span>
+                    ) : (
+                      <span className={status.badge.indirect ? 'chip' : 'chip installed'}>
+                        {status.badge.label}
+                      </span>
+                    )}
+                  </td>
+                  <td className="col-version mono candidate" title={item.version}>
+                    {item.version}
+                  </td>
+                  <td className="col-imported mono muted">
+                    {item.importedBy === undefined ? '—' : item.importedBy.toLocaleString()}
+                  </td>
+                  <td className="col-actions" onClick={(event) => event.stopPropagation()}>
+                    <details className="row-menu">
+                      <summary title="Module actions" aria-label={`Actions for ${item.name}`}>
+                        <MoreIcon />
+                      </summary>
+                      <div className="menu" role="menu">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(event) => {
+                            void copyPath(item.name);
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                          }}
+                        >
+                          Copy module path
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(event) => {
+                            void copyPath(`import "${importPath}"`);
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                          }}
+                        >
+                          Copy import statement
+                        </button>
+                        {item.private === true ? null : (
+                          <a
+                            role="menuitem"
+                            href={`https://pkg.go.dev/${item.name}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open on pkg.go.dev
+                          </a>
+                        )}
+                      </div>
+                    </details>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : null}
+
+      {loading ? (
+        <div className="browse-footer" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span className="muted">Searching Go modules…</span>
+        </div>
+      ) : null}
+
+      {!loading && error !== undefined ? (
+        <div className="empty empty-action">
+          <p>Could not search modules: {error}</p>
+          <button type="button" className="button secondary compact" onClick={onRetry}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {!loading && error === undefined && items.length === 0 ? (
+        <div className="empty">
+          {query.trim() === ''
+            ? 'Type a module path or keyword to search Go modules.'
+            : `No Go modules matched “${query.trim()}”.`}
+        </div>
+      ) : null}
+
+      {!loading && nextPageToken !== undefined && items.length > 0 ? (
+        <div className="browse-footer">
+          <button type="button" className="button secondary compact" onClick={onLoadMore}>
+            Load more
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BrowseInspector({
+  item,
+  projects,
+  rows,
+  moduleFilter,
+  includePrereleases,
+  versions,
+  versionsPending,
+  busy,
+  metadata,
+  releaseNotes,
+  why,
+  preview,
+  directOnly,
+  onVersions,
+  onModuleMetadata,
+  onReleaseNotes,
+  onWhy,
+  onPreview,
+  onApplyTargets,
+  onOpenManifest,
+  onRevealIndirectInInstalled,
+}: {
+  readonly item: SearchResult;
+  readonly projects: readonly ProjectSummary[];
+  readonly rows: readonly DependencyRow[];
+  readonly moduleFilter: string;
+  readonly includePrereleases: boolean;
+  readonly versions: readonly string[] | undefined;
+  readonly versionsPending: boolean;
+  readonly busy: boolean;
+  readonly metadata?: ModuleMetadata | null;
+  readonly releaseNotes: Readonly<Record<string, ReleaseNotes | null>>;
+  readonly why: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
+  readonly preview?: PreviewResult;
+  readonly directOnly: boolean;
+  readonly onVersions: (modulePath: string) => void;
+  readonly onModuleMetadata: (modulePath: string, version?: string) => void;
+  readonly onReleaseNotes: (modulePath: string, version: string) => void;
+  readonly onWhy: (manifestPath: string, name: string) => void;
+  readonly onPreview: (manifestPath: string, name: string, version: string) => void;
+  readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
+  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onRevealIndirectInInstalled: () => void;
+}): JSX.Element {
+  const status = useMemo(
+    () => browseModuleStatus(item.name, rows, 'all'),
+    [item.name, rows],
+  );
+  const [checkedManifests, setCheckedManifests] = useState<ReadonlySet<string>>(() =>
+    defaultCheckedManifests(projects, status.installedIn, moduleFilter),
+  );
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+
+  useEffect(() => {
+    setCheckedManifests(defaultCheckedManifests(projects, status.installedIn, moduleFilter));
+  }, [moduleFilter, projects.length]);
+
+  useEffect(() => {
+    onVersions(item.name);
+    if (item.private !== true) {
+      onModuleMetadata(item.name, item.version);
+    }
+  }, [item.name, item.version, item.private]);
+
+  useEffect(() => {
+    for (const row of status.installedIn) {
+      onWhy(row.manifestPath, item.name);
+    }
+  }, [item.name, status.installedIn.length]);
+
+  const installedVersions = status.installedIn
+    .map((row) => row.resolvedVersion ?? row.declaredVersion)
+    .filter(isString);
+  const options = pickerVersions(
+    [...new Set([...(versions ?? []), item.version, ...installedVersions])].sort(
+      (left, right) => compareVersions(right, left),
+    ),
+    { includePrereleases },
+  );
+  const fallback = options[0] ?? item.version;
+  const [version, setVersion] = useState(fallback);
+  const chosen = options.includes(version) ? version : fallback;
+
+  useEffect(() => {
+    if (item.name.startsWith('github.com/')) {
+      onReleaseNotes(item.name, chosen);
+    }
+  }, [item.name, chosen]);
+
+  const installTargets = useMemo(
+    () =>
+      planInspectorTargets({
+        moduleName: item.name,
+        chosenVersion: chosen,
+        checkedManifests,
+        rows,
+        action: 'install-or-update',
+      }),
+    [item.name, chosen, checkedManifests, rows],
+  );
+  const removeTargets = useMemo(
+    () =>
+      planInspectorTargets({
+        moduleName: item.name,
+        chosenVersion: chosen,
+        checkedManifests,
+        rows,
+        action: 'remove',
+      }),
+    [item.name, chosen, checkedManifests, rows],
+  );
+
+  const isAddingNew = installTargets.some(
+    (target) =>
+      !rows.some(
+        (row) => row.manifestPath === target.manifestPath && row.name === item.name,
+      ),
+  );
+  const primaryLabel =
+    installTargets.length === 0
+      ? status.installedIn.length > 0
+        ? 'Installed'
+        : 'Install'
+      : isAddingNew
+        ? 'Install'
+        : 'Update';
+
+  const firstRemoveManifest = removeTargets[0]?.manifestPath;
+  const matchingRemovePreview =
+    preview !== undefined &&
+    firstRemoveManifest !== undefined &&
+    preview.manifestPath === firstRemoveManifest &&
+    preview.name === item.name &&
+    preview.version === 'none'
+      ? preview
+      : undefined;
+  const removeCheck = removeSafety({
+    moduleName: item.name,
+    whyText:
+      firstRemoveManifest === undefined
+        ? undefined
+        : why[`${firstRemoveManifest}#${item.name}`]?.text,
+    previewImpact: matchingRemovePreview?.impact,
+  });
+
+  const handleUninstallClick = (): void => {
+    if (removeTargets.length === 0) {
+      return;
+    }
+    if (!confirmingRemove && removeCheck.needsConfirm) {
+      setConfirmingRemove(true);
+      if (firstRemoveManifest !== undefined && matchingRemovePreview === undefined) {
+        onPreview(firstRemoveManifest, item.name, 'none');
+      }
+      return;
+    }
+    setConfirmingRemove(false);
+    onApplyTargets(removeTargets);
+  };
+
+  const toggleProject = (manifestPath: string): void => {
+    setCheckedManifests((current) => {
+      const next = new Set(current);
+      if (next.has(manifestPath)) {
+        next.delete(manifestPath);
+      } else {
+        next.add(manifestPath);
+      }
+      return next;
+    });
+  };
+
+  const importPath = item.matchedPackage ?? item.name;
+  const notes = releaseNotes[`${item.name}@${chosen}`];
+  const repoUrl = metadata?.repoUrl ?? repositoryUrl(item.name);
+  const hasIndirectInstalled = status.installedIn.some((row) => row.transitive);
+
+  return (
+    <div className="inspector-body">
+      <header className="inspector-head">
+        <div>
+          <h2 className="mono">
+            {item.name}
+            {status.badge === undefined ? null : (
+              <span className={status.badge.indirect ? 'chip' : 'chip installed'}>
+                {status.badge.label}
+              </span>
+            )}
+          </h2>
+          {item.summary === '' ? null : <p className="browse-summary">{item.summary}</p>}
+        </div>
+        {item.private === true ? null : (
+          <a
+            className="icon-button"
+            href={`https://pkg.go.dev/${item.name}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open on pkg.go.dev"
+          >
+            <ExternalLinkIcon />
+          </a>
+        )}
+      </header>
+
+      {projects.length > 1 ? (
+        <ProjectChecklist
+          projects={projects}
+          rows={rows}
+          moduleName={item.name}
+          checkedManifests={checkedManifests}
+          disabled={busy}
+          onToggle={toggleProject}
+          onOpenManifest={onOpenManifest}
+        />
+      ) : null}
+
+      <div className="controls">
+        <Dropdown
+          label="Version"
+          value={chosen}
+          options={options.map((candidate) => ({
+            value: candidate,
+            label: candidate,
+          }))}
+          onChange={setVersion}
+          disabled={busy}
+          grow
+        />
+        <button
+          type="button"
+          className="button primary"
+          disabled={busy || installTargets.length === 0 || checkedManifests.size === 0}
+          title={
+            checkedManifests.size === 0
+              ? 'Select a project to target'
+              : installTargets.length === 0
+                ? 'Already resolved at this version in the selected project(s)'
+                : `Run go get ${item.name}@${chosen}`
+          }
+          onClick={() => {
+            setConfirmingRemove(false);
+            onApplyTargets(installTargets);
+          }}
+        >
+          {primaryLabel}
+        </button>
+        {removeTargets.length > 0 ? (
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy}
+            title={`Run go get ${item.name}@none`}
+            onClick={handleUninstallClick}
+          >
+            {confirmingRemove ? 'Confirm uninstall' : 'Uninstall'}
+          </button>
+        ) : null}
+      </div>
+
+      {confirmingRemove ? (
+        <div className="callout">
+          <WarningIcon size={16} />
+          <div>
+            <strong>Confirm uninstall of {item.name}</strong>
+            {removeCheck.importedByCode ? (
+              <p className="mono">
+                Source files in this module still import {item.name}. Removing the requirement from{' '}
+                <code>go.mod</code> will leave those imports unresolved until you edit the code or
+                click Undo.
+              </p>
+            ) : null}
+            {removeCheck.collateral.length > 0 ? (
+              <ul className="impact">
+                {removeCheck.collateral.map((entry) => (
+                  <li key={entry.name} className="mono">
+                    {entry.kind === 'removed'
+                      ? `drops ${entry.name} ${entry.from ?? ''}`
+                      : `${entry.kind} ${entry.name} ${entry.from ?? ''} → ${entry.to ?? ''}`}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {versionsPending ? (
+        <p className="version-note muted">
+          <span className="spinner" aria-hidden="true" /> Loading all versions from Go toolchain…
+        </p>
+      ) : null}
+
+      <div className="indirect-hint">
+        <span className="muted">
+          Go marks a newly added module <code>// indirect</code> in <code>go.mod</code> until a{' '}
+          <code>.go</code> file imports it.
+        </span>
+        {hasIndirectInstalled && directOnly ? (
+          <button
+            type="button"
+            className="link-button"
+            onClick={onRevealIndirectInInstalled}
+          >
+            Show indirect in Installed
+          </button>
+        ) : null}
+      </div>
+
+      <dl className="facts">
+        {projects.length === 1 && projects[0] !== undefined ? (
+          <div>
+            <dt>Owning module</dt>
+            <dd className="mono">{projects[0].name}</dd>
+          </div>
+        ) : null}
+        {projects.length === 1 && status.installedIn[0] !== undefined ? (
+          <div>
+            <dt>Declared in</dt>
+            <dd>
+              <button
+                type="button"
+                className="link-button path-link"
+                title="Open go.mod at this require"
+                onClick={() =>
+                  onOpenManifest(status.installedIn[0]!.manifestPath, item.name)
+                }
+              >
+                {status.installedIn[0].manifestPath}
+              </button>
+            </dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>Import statement</dt>
+          <dd className="import-copy">
+            <code className="path-code mono">import &quot;{importPath}&quot;</code>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => void copyPath(`import "${importPath}"`)}
+            >
+              Copy
+            </button>
+          </dd>
+        </div>
+        <div>
+          <dt>Latest version</dt>
+          <dd className="mono candidate">{options[0] ?? item.version}</dd>
+        </div>
+        {item.matchedPackage !== undefined && item.matchedPackage !== item.name ? (
+          <div>
+            <dt>Matched package</dt>
+            <dd className="mono">{item.matchedPackage}</dd>
+          </div>
+        ) : null}
+        {item.importedBy === undefined ? null : (
+          <div>
+            <dt>Imported by</dt>
+            <dd className="mono">{item.importedBy.toLocaleString()} packages</dd>
+          </div>
+        )}
+        {metadata?.licenses && metadata.licenses.length > 0 ? (
+          <div>
+            <dt>License</dt>
+            <dd className="mono">{metadata.licenses.join(', ')}</dd>
+          </div>
+        ) : null}
+        {metadata?.publishedAt === undefined ? null : (
+          <div>
+            <dt>Published</dt>
+            <dd className="mono">{ageOf(metadata.publishedAt)}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Links</dt>
+          <dd className="links">
+            {item.private === true ? (
+              <span className="muted">private module</span>
+            ) : (
+              <a
+                href={`https://pkg.go.dev/${item.name}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                pkg.go.dev
+              </a>
+            )}
+            {repoUrl === undefined ? null : (
+              <>
+                {item.private === true ? '' : ' · '}
+                <a href={repoUrl} target="_blank" rel="noreferrer">
+                  repository
+                </a>
+              </>
+            )}
+          </dd>
+        </div>
+      </dl>
+
+      {item.name.startsWith('github.com/') ? (
+        notes === undefined ? (
+          <p className="muted version-note">Looking up release notes…</p>
+        ) : notes === null ? (
+          <p className="muted version-note">No release notes for this version.</p>
+        ) : (
+          <div className="release-notes">
+            <strong>{notes.title}</strong>
+            {notes.body === '' ? null : <pre className="why-text">{notes.body}</pre>}
+            <a href={notes.url} target="_blank" rel="noreferrer">
+              Open release
+            </a>
+          </div>
+        )
+      ) : null}
+
+      <p className="footnote mono">
+        Runs <code>go get {item.name}@{chosen}</code> with workspace mode off.
+      </p>
+    </div>
+  );
+}
+
+function ProjectChecklist({
+  projects,
+  rows,
+  moduleName,
+  checkedManifests,
+  disabled,
+  onToggle,
+  onOpenManifest,
+}: {
+  readonly projects: readonly ProjectSummary[];
+  readonly rows: readonly DependencyRow[];
+  readonly moduleName: string;
+  readonly checkedManifests: ReadonlySet<string>;
+  readonly disabled: boolean;
+  readonly onToggle: (manifestPath: string) => void;
+  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+}): JSX.Element {
+  return (
+    <div className="project-checklist">
+      <table aria-label="Target projects">
+        <thead>
+          <tr>
+            <th scope="col" className="col-check">
+              <span className="sr-only">Target</span>
+            </th>
+            <th scope="col">Project</th>
+            <th scope="col" className="col-version">
+              Installed
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((project) => {
+            const existing = rows.find(
+              (row) => row.manifestPath === project.manifestPath && row.name === moduleName,
+            );
+            const checked = checkedManifests.has(project.manifestPath);
+            const version = existing?.resolvedVersion ?? existing?.declaredVersion;
+            return (
+              <tr
+                key={project.manifestPath}
+                className={checked ? 'selected' : undefined}
+                onClick={() => {
+                  if (!disabled) {
+                    onToggle(project.manifestPath);
+                  }
+                }}
+              >
+                <td className="col-check" onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    aria-label={`Target ${project.name}`}
+                    onChange={() => onToggle(project.manifestPath)}
+                  />
+                </td>
+                <td className="mono">{project.name}</td>
+                <td className="col-version mono">
+                  {version === undefined ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="link-button path-link"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenManifest(project.manifestPath, moduleName);
+                      }}
+                      title="Open go.mod at this require"
+                    >
+                      {version}
+                      {existing?.transitive ? ' (indirect)' : ''}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -915,11 +1745,16 @@ function EmptyState({
 
 function Inspector({
   row,
+  tab,
+  projects,
+  allRows,
+  includePrereleases,
   versions,
   versionsPending,
   busy,
   onVersions,
   onUpdate,
+  onApplyTargets,
   onOpenManifest,
   why,
   onWhy,
@@ -929,11 +1764,16 @@ function Inspector({
   onPreview,
 }: {
   readonly row: DependencyRow;
+  readonly tab: Tab;
+  readonly projects: readonly ProjectSummary[];
+  readonly allRows: readonly DependencyRow[];
+  readonly includePrereleases: boolean;
   readonly versions: readonly string[] | undefined;
   readonly versionsPending: boolean;
   readonly busy: boolean;
   readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+  readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
   readonly onOpenManifest: (manifestPath: string, name: string) => void;
   readonly why?: { readonly text?: string; readonly error?: string };
   readonly onWhy: (manifestPath: string, name: string) => void;
@@ -942,7 +1782,19 @@ function Inspector({
   readonly preview?: PreviewResult;
   readonly onPreview: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
-  const [includePrereleases, setIncludePrereleases] = useState(false);
+  const sameModuleRows = useMemo(
+    () => allRows.filter((entry) => entry.name === row.name),
+    [allRows, row.name],
+  );
+  const [checkedManifests, setCheckedManifests] = useState<ReadonlySet<string>>(
+    () =>
+      new Set(
+        tab === 'consolidate'
+          ? sameModuleRows.map((entry) => entry.manifestPath)
+          : [row.manifestPath],
+      ),
+  );
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   useEffect(() => {
     if (row.replacement === undefined) {
@@ -951,7 +1803,13 @@ function Inspector({
     onWhy(row.manifestPath, row.name);
   }, [row.name, row.manifestPath, row.replacement]);
 
-  const known = [row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString);
+  const known = [
+    row.candidate,
+    row.prereleaseCandidate,
+    row.resolvedVersion,
+    row.declaredVersion,
+    ...sameModuleRows.map((entry) => entry.resolvedVersion ?? entry.declaredVersion),
+  ].filter(isString);
   const options = pickerVersions(
     [...new Set([...(versions ?? []), ...known])].sort((left, right) =>
       compareVersions(right, left),
@@ -968,12 +1826,35 @@ function Inspector({
     preview.version === chosen
       ? preview
       : undefined;
+  const matchingRemovePreview =
+    preview !== undefined &&
+    preview.manifestPath === row.manifestPath &&
+    preview.name === row.name &&
+    preview.version === 'none'
+      ? preview
+      : undefined;
   const apply = versionApplyOffer(row.resolvedVersion, chosen, {
     includePrereleases,
     allowDowngrade: matchingPreview?.status === 'ready',
   });
   const needsPreview =
     row.resolvedVersion !== undefined && compareVersions(chosen, row.resolvedVersion) < 0;
+  const consolidateTargets = useMemo(
+    () =>
+      planInspectorTargets({
+        moduleName: row.name,
+        chosenVersion: chosen,
+        checkedManifests,
+        rows: allRows,
+        action: 'install-or-update',
+      }),
+    [row.name, chosen, checkedManifests, allRows],
+  );
+  const removeCheck = removeSafety({
+    moduleName: row.name,
+    whyText: why?.text,
+    previewImpact: matchingRemovePreview?.impact,
+  });
   const notes = releaseNotes[`${row.name}@${chosen}`];
   const pinNote = commitPinUpdateNote({
     resolvedVersion: row.resolvedVersion,
@@ -987,6 +1868,30 @@ function Inspector({
       onReleaseNotes(row.name, chosen);
     }
   }, [row.name, chosen]);
+
+  const toggleProject = (manifestPath: string): void => {
+    setCheckedManifests((current) => {
+      const next = new Set(current);
+      if (next.has(manifestPath)) {
+        next.delete(manifestPath);
+      } else {
+        next.add(manifestPath);
+      }
+      return next;
+    });
+  };
+
+  const handleUninstallClick = (): void => {
+    if (!confirmingRemove && removeCheck.needsConfirm) {
+      setConfirmingRemove(true);
+      if (matchingRemovePreview === undefined) {
+        onPreview(row.manifestPath, row.name, 'none');
+      }
+      return;
+    }
+    setConfirmingRemove(false);
+    onUpdate(row.manifestPath, row.name, 'none');
+  };
 
   return (
     <div className="inspector-body">
@@ -1012,6 +1917,18 @@ function Inspector({
           </a>
         )}
       </header>
+
+      {tab === 'consolidate' && projects.length > 1 ? (
+        <ProjectChecklist
+          projects={projects}
+          rows={allRows}
+          moduleName={row.name}
+          checkedManifests={checkedManifests}
+          disabled={busy}
+          onToggle={toggleProject}
+          onOpenManifest={onOpenManifest}
+        />
+      ) : null}
 
       <dl className="facts">
         <div>
@@ -1136,7 +2053,21 @@ function Inspector({
               disabled={busy}
               grow
             />
-            {needsPreview && matchingPreview?.status !== 'ready' ? (
+            {tab === 'consolidate' && projects.length > 1 ? (
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy || consolidateTargets.length === 0}
+                title={
+                  consolidateTargets.length === 0
+                    ? 'Selected projects already resolve this version'
+                    : `Consolidate ${consolidateTargets.length} project(s) to ${chosen}`
+                }
+                onClick={() => onApplyTargets(consolidateTargets)}
+              >
+                Consolidate ({consolidateTargets.length})
+              </button>
+            ) : needsPreview && matchingPreview?.status !== 'ready' ? (
               <button
                 type="button"
                 className="button primary"
@@ -1156,21 +2087,50 @@ function Inspector({
                     ? `Run go get ${row.name}@${chosen}`
                     : apply.reason
                 }
-                onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
+                onClick={() => {
+                  setConfirmingRemove(false);
+                  onUpdate(row.manifestPath, row.name, chosen);
+                }}
               >
                 {needsPreview ? 'Confirm downgrade' : 'Update'}
               </button>
             )}
-          </div>
-          <label className="checkbox version-prerelease">
-            <input
-              type="checkbox"
-              checked={includePrereleases}
+            <button
+              type="button"
+              className="button secondary"
               disabled={busy}
-              onChange={(event) => setIncludePrereleases(event.target.checked)}
-            />
-            Show prereleases
-          </label>
+              title={`Run go get ${row.name}@none`}
+              onClick={handleUninstallClick}
+            >
+              {confirmingRemove ? 'Confirm uninstall' : 'Uninstall'}
+            </button>
+          </div>
+          {confirmingRemove ? (
+            <div className="callout">
+              <WarningIcon size={16} />
+              <div>
+                <strong>Confirm uninstall of {row.name}</strong>
+                {removeCheck.importedByCode ? (
+                  <p className="mono">
+                    Source files in {row.project} still import {row.name}. Removing the
+                    requirement from <code>go.mod</code> will leave those imports unresolved
+                    until you edit the code or click Undo.
+                  </p>
+                ) : null}
+                {removeCheck.collateral.length > 0 ? (
+                  <ul className="impact">
+                    {removeCheck.collateral.map((entry) => (
+                      <li key={entry.name} className="mono">
+                        {entry.kind === 'removed'
+                          ? `drops ${entry.name} ${entry.from ?? ''}`
+                          : `${entry.kind} ${entry.name} ${entry.from ?? ''} → ${entry.to ?? ''}`}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {matchingPreview?.status === 'ready' && matchingPreview.impact.length > 0 ? (
             <ul className="impact">
               {matchingPreview.impact.map((entry) => (

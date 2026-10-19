@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import type { EcosystemAdapter, UpdateRequest, UpdateResult } from '../core/adapter';
+import type {
+  EcosystemAdapter,
+  ModuleMetadata,
+  UpdateRequest,
+  UpdateResult,
+} from '../core/adapter';
 import type { DependencySelection, RecoveryAction, ReleaseNotes } from '../core/messages';
 import {
   advisoryTargets,
@@ -20,7 +25,12 @@ import {
 } from '../ecosystems/go/runner';
 import { failureKindFor } from '../ecosystems/go/errors';
 import { requireLineNumber } from '../ecosystems/go/requireLine';
-import { planBulkUpdate, shouldRetryFailedGroup } from '../core/bulk';
+import {
+  planBulkUpdate,
+  planTargetChanges,
+  shouldRetryFailedGroup,
+  type TargetChange,
+} from '../core/bulk';
 import { workspaceRoots } from '../core/workspaceRoots';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { fetchReleaseNotes } from '../ecosystems/go/releases';
@@ -45,8 +55,10 @@ let output: vscode.OutputChannel | undefined;
 let environmentLogged = false;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
+let searchCycle = 0;
 let session = new AbortController();
 const releaseNotesCache = new Map<string, Promise<ReleaseNotes | undefined>>();
+const moduleMetadataCache = new Map<string, Promise<ModuleMetadata | undefined>>();
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Go Module Manager');
@@ -85,6 +97,9 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     onUpdate: (request) => {
       void updateDependency(context, request);
     },
+    onApplyTargets: (targets) => {
+      void applyTargets(context, targets);
+    },
     onBulkUpdate: (selection) => {
       void bulkUpdate(context, selection);
     },
@@ -114,6 +129,12 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     },
     onPreview: (manifestPath, name, version) => {
       void requestPreview(manifestPath, name, version);
+    },
+    onSearch: (query, pageToken) => {
+      void requestSearch(query, pageToken);
+    },
+    onModuleMetadata: (modulePath, version) => {
+      void requestModuleMetadata(modulePath, version);
     },
   };
 }
@@ -539,7 +560,11 @@ async function updateDependency(
     return;
   }
 
-  const results = await runAction('Updating dependencies…', () =>
+  const change = request.changes[0];
+  const removing = change?.version === 'none';
+  const busyLabel = removing ? 'Removing dependency…' : 'Updating dependencies…';
+
+  const results = await runAction(busyLabel, () =>
     runGroups(context, loaded.adapter, [request]),
   );
   if (results === undefined) {
@@ -547,12 +572,16 @@ async function updateDependency(
   }
 
   const result = results[0];
-  const change = request.changes[0];
   if (result === undefined || change === undefined) {
     return;
   }
   if (result.status === 'failed') {
-    showUpdateFailure(`GMM: ${change.name} could not be updated.`, result.message ?? '');
+    showUpdateFailure(
+      removing
+        ? `GMM: ${change.name} could not be removed.`
+        : `GMM: ${change.name} could not be updated.`,
+      result.message ?? '',
+    );
     return;
   }
 
@@ -562,19 +591,78 @@ async function updateDependency(
   }
 
   // Report what the toolchain resolved, not what was requested.
-  const resolved = fresh.model.rows.find(
-    (row) => row.manifestPath === request.manifestPath && row.name === change.name,
-  )?.resolvedVersion;
+  const row = fresh.model.rows.find(
+    (entry) => entry.manifestPath === request.manifestPath && entry.name === change.name,
+  );
+  const resolved = row?.resolvedVersion ?? row?.declaredVersion;
 
-  const choice = await vscode.window.showInformationMessage(
-    resolved === undefined
+  const toastMessage = removing
+    ? `GMM: ${change.name} removed`
+    : resolved === undefined
       ? `GMM: ${change.name} updated`
-      : `GMM: ${change.name} resolved to ${resolved}`,
+      : `GMM: ${change.name} resolved to ${resolved}`;
+
+  const choice = await vscode.window.showInformationMessage(toastMessage, 'Undo');
+  if (choice === 'Undo') {
+    await runAction('Undoing…', async () => {
+      await undoResults(loaded.adapter, [request.manifestPath]);
+      await refresh(context, false, { force: true });
+    });
+  }
+}
+
+async function applyTargets(
+  context: vscode.ExtensionContext,
+  targets: readonly TargetChange[],
+): Promise<void> {
+  const loaded = current;
+  if (loaded === undefined || loaded.adapter.update === undefined) {
+    return;
+  }
+
+  const groups = planTargetChanges(targets);
+  if (groups.length === 0) {
+    return;
+  }
+  if (groups.length === 1 && groups[0] !== undefined && groups[0].changes.length === 1) {
+    await updateDependency(context, groups[0]);
+    return;
+  }
+
+  const removingAll = targets.every((target) => target.version === 'none');
+  const outcome = await runAction(
+    removingAll ? 'Removing dependencies…' : 'Updating dependencies…',
+    () => runGroups(context, loaded.adapter, groups),
+  );
+  if (outcome === undefined) {
+    return;
+  }
+
+  const failed = outcome.filter((result) => result.status === 'failed');
+  const succeeded = outcome.filter((result) => result.status === 'updated');
+
+  if (failed.length > 0) {
+    showUpdateFailure(
+      `GMM: ${failed.length} of ${outcome.length} project updates failed.`,
+      failed[0]?.message ?? '',
+    );
+  }
+  if (succeeded.length === 0) {
+    return;
+  }
+
+  const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
+  const choice = await vscode.window.showInformationMessage(
+    removingAll
+      ? `GMM: removed from ${projectCount} project(s).`
+      : `GMM: updated in ${projectCount} project(s).`,
     'Undo',
   );
   if (choice === 'Undo') {
     await runAction('Undoing…', async () => {
-      await undoResults(loaded.adapter, [request.manifestPath]);
+      await undoResults(loaded.adapter, [
+        ...new Set(succeeded.map((result) => result.manifestPath)),
+      ]);
       await refresh(context, false, { force: true });
     });
   }
@@ -830,6 +918,53 @@ async function requestPreview(
       });
     }
   });
+}
+
+async function requestSearch(query: string, pageToken?: string): Promise<void> {
+  const search = current?.adapter.search;
+  if (search === undefined) {
+    return;
+  }
+
+  const append = pageToken !== undefined && pageToken !== '';
+  const token = append ? searchCycle : ++searchCycle;
+  GmmPanel.postSearchLoading(query, append);
+
+  try {
+    const response = await search(query, {
+      ...(append ? { pageToken } : {}),
+    });
+    if (token !== searchCycle) {
+      return;
+    }
+    GmmPanel.postSearchResults(response, { append });
+  } catch (error) {
+    if (token !== searchCycle) {
+      return;
+    }
+    GmmPanel.postSearchResults(
+      { query: query.trim(), items: [] },
+      { append, error: messageOf(error) },
+    );
+  }
+}
+
+async function requestModuleMetadata(
+  modulePath: string,
+  version?: string,
+): Promise<void> {
+  const fetchMetadata = current?.adapter.moduleMetadata;
+  if (fetchMetadata === undefined) {
+    return;
+  }
+  const key = `${modulePath}@${version ?? ''}`;
+  const cached = moduleMetadataCache.get(key);
+  const pending = cached ?? fetchMetadata(modulePath, version);
+  if (cached === undefined) {
+    moduleMetadataCache.set(key, pending);
+    void pending.catch(() => moduleMetadataCache.delete(key));
+  }
+  GmmPanel.postModuleMetadata(modulePath, await pending);
 }
 
 async function fetchGitHubJson(url: string): Promise<unknown> {

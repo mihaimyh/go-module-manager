@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { PreviewResult } from '../core/adapter';
+import type { ModuleMetadata, PreviewResult, SearchResult } from '../core/adapter';
+import type { TargetChange } from '../core/bulk';
 import type {
   DependencySelection,
   HostToWebview,
@@ -23,6 +24,11 @@ interface ViewState {
   readonly why?: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
   readonly releaseNotes?: Readonly<Record<string, ReleaseNotes | null>>;
   readonly preview?: PreviewResult;
+  readonly searchItems?: readonly SearchResult[];
+  readonly searchLoading?: boolean;
+  readonly searchNextPageToken?: string;
+  readonly searchError?: string;
+  readonly moduleMetadata?: Readonly<Record<string, ModuleMetadata | null>>;
 }
 
 function Root(): JSX.Element {
@@ -83,6 +89,41 @@ function Root(): JSX.Element {
       if (message.type === 'preview') {
         setState((current) => ({ ...current, preview: message.result }));
       }
+      if (message.type === 'search-loading') {
+        setState((current) => ({
+          ...current,
+          searchLoading: true,
+          searchError: undefined,
+        }));
+      }
+      if (message.type === 'search-results') {
+        const { response, append, error } = message;
+        setState((current) => {
+          const previous = append === true ? (current.searchItems ?? []) : [];
+          const seen = new Set(previous.map((item) => item.name));
+          const merged = [
+            ...previous,
+            ...response.items.filter((item) => !seen.has(item.name)),
+          ];
+          return {
+            ...current,
+            searchItems: merged,
+            searchLoading: false,
+            searchNextPageToken: response.nextPageToken,
+            searchError: error,
+          };
+        });
+      }
+      if (message.type === 'module-metadata') {
+        const { modulePath, metadata } = message;
+        setState((current) => ({
+          ...current,
+          moduleMetadata: {
+            ...current.moduleMetadata,
+            [modulePath]: metadata ?? null,
+          },
+        }));
+      }
     };
     window.addEventListener('message', onMessage);
     const ready: WebviewToHost = { type: 'ready' };
@@ -102,6 +143,11 @@ function Root(): JSX.Element {
 
   const onUpdate = (manifestPath: string, name: string, version: string): void => {
     const message: WebviewToHost = { type: 'update', manifestPath, name, version };
+    vscode.postMessage(message);
+  };
+
+  const onApplyTargets = (targets: readonly TargetChange[]): void => {
+    const message: WebviewToHost = { type: 'apply-targets', targets };
     vscode.postMessage(message);
   };
 
@@ -155,6 +201,24 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onSearch = (query: string, pageToken?: string): void => {
+    const message: WebviewToHost = {
+      type: 'search',
+      query,
+      ...(pageToken === undefined ? {} : { pageToken }),
+    };
+    vscode.postMessage(message);
+  };
+
+  const onModuleMetadata = (modulePath: string, version?: string): void => {
+    const message: WebviewToHost = {
+      type: 'module-metadata',
+      modulePath,
+      ...(version === undefined ? {} : { version }),
+    };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -172,9 +236,17 @@ function Root(): JSX.Element {
       onReleaseNotes={onReleaseNotes}
       preview={state.preview}
       onPreview={onPreview}
+      searchItems={state.searchItems ?? []}
+      searchLoading={state.searchLoading === true}
+      searchNextPageToken={state.searchNextPageToken}
+      searchError={state.searchError}
+      onSearch={onSearch}
+      moduleMetadata={state.moduleMetadata ?? {}}
+      onModuleMetadata={onModuleMetadata}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}
+      onApplyTargets={onApplyTargets}
       onBulkUpdate={onBulkUpdate}
       onTidy={onTidy}
       onScan={onScan}

@@ -1,4 +1,5 @@
-import type { PreviewResult } from './adapter';
+import type { ModuleMetadata, PreviewResult, SearchResponse } from './adapter';
+import type { TargetChange } from './bulk';
 import type { PanelModel } from './model';
 
 export interface ReleaseNotes {
@@ -41,7 +42,23 @@ export type HostToWebview =
       readonly version: string;
       readonly notes?: ReleaseNotes;
     }
-  | { readonly type: 'preview'; readonly result: PreviewResult };
+  | { readonly type: 'preview'; readonly result: PreviewResult }
+  | {
+      readonly type: 'search-loading';
+      readonly query: string;
+      readonly append?: boolean;
+    }
+  | {
+      readonly type: 'search-results';
+      readonly response: SearchResponse;
+      readonly append?: boolean;
+      readonly error?: string;
+    }
+  | {
+      readonly type: 'module-metadata';
+      readonly modulePath: string;
+      readonly metadata?: ModuleMetadata;
+    };
 
 export type RecoveryAction =
   | 'repair'
@@ -68,6 +85,10 @@ export type WebviewToHost =
       readonly manifestPath: string;
       readonly name: string;
       readonly version: string;
+    }
+  | {
+      readonly type: 'apply-targets';
+      readonly targets: readonly TargetChange[];
     }
   | {
       readonly type: 'bulk-update';
@@ -107,4 +128,14 @@ export type WebviewToHost =
       readonly manifestPath: string;
       readonly name: string;
       readonly version: string;
+    }
+  | {
+      readonly type: 'search';
+      readonly query: string;
+      readonly pageToken?: string;
+    }
+  | {
+      readonly type: 'module-metadata';
+      readonly modulePath: string;
+      readonly version?: string;
     };

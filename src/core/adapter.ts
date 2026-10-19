@@ -46,6 +46,35 @@ export interface PreviewResult {
   readonly message?: string;
 }
 
+export interface SearchOptions {
+  readonly pageToken?: string;
+  readonly limit?: number;
+}
+
+export interface SearchResult {
+  readonly name: string;
+  readonly version: string;
+  readonly summary: string;
+  /** Set when the search matched a sub-package inside the module. */
+  readonly matchedPackage?: string;
+  readonly importedBy?: number;
+  readonly private?: boolean;
+}
+
+export interface SearchResponse {
+  readonly query: string;
+  readonly items: readonly SearchResult[];
+  readonly nextPageToken?: string;
+}
+
+export interface ModuleMetadata {
+  readonly modulePath: string;
+  readonly version?: string;
+  readonly publishedAt?: string;
+  readonly repoUrl?: string;
+  readonly licenses: readonly string[];
+}
+
 /**
  * The single seam between the panel and a dependency ecosystem.
  *
@@ -84,6 +113,10 @@ export interface EcosystemAdapter {
   why?(manifestPath: string, name: string): Promise<string>;
   /** Dry-run a version move (especially a downgrade) and restore the files. */
   preview?(request: UpdateRequest): Promise<PreviewResult>;
+  /** Searches the ecosystem's module index by keyword or exact path. */
+  search?(query: string, options?: SearchOptions): Promise<SearchResponse>;
+  /** Fetches license, publish time and repository metadata for a module. */
+  moduleMetadata?(modulePath: string, version?: string): Promise<ModuleMetadata | undefined>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

@@ -213,3 +213,40 @@ export function classifyUpdate(from: string, to: string): UpdateKind {
   }
   return 'prerelease';
 }
+
+export interface RemoveSafetyImpact {
+  readonly name: string;
+  readonly kind: 'lowered' | 'removed' | 'raised';
+  readonly from?: string;
+  readonly to?: string;
+}
+
+export interface RemoveSafety {
+  readonly needsConfirm: boolean;
+  readonly importedByCode: boolean;
+  readonly collateral: readonly RemoveSafetyImpact[];
+}
+
+/**
+ * Removing a requirement (`@none`) is safe in one click when `go mod why -m`
+ * reports that the main module does not need it and MVS does not lower or drop
+ * any other module. Otherwise the user confirms the collateral impact first.
+ */
+export function removeSafety(input: {
+  readonly moduleName: string;
+  readonly whyText?: string;
+  readonly previewImpact?: readonly RemoveSafetyImpact[];
+}): RemoveSafety {
+  const why = input.whyText?.trim() ?? '';
+  const importedByCode =
+    why !== '' && !why.includes('(main module does not need module');
+  const collateral = (input.previewImpact ?? []).filter(
+    (entry) => entry.name !== input.moduleName,
+  );
+  return {
+    needsConfirm: importedByCode || collateral.length > 0,
+    importedByCode,
+    collateral,
+  };
+}
+
