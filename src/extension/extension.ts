@@ -252,8 +252,17 @@ async function ensureWorkspace(
   return loaded.model;
 }
 
-async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promise<void> {
-  if (updating) {
+/**
+ * Reloads the panel model. Watcher/config refreshes are skipped while a write
+ * is in flight (`updating`); callers that just finished a write pass
+ * `force: true` so the panel reflects the new go.mod.
+ */
+async function refresh(
+  context: vscode.ExtensionContext,
+  fresh: boolean,
+  options: { readonly force?: boolean } = {},
+): Promise<void> {
+  if (updating && options.force !== true) {
     return;
   }
   resetSession();
@@ -436,7 +445,7 @@ async function runGroups(
     );
   }
 
-  await refresh(context, false);
+  await refresh(context, false, { force: true });
 
   const failed = results.filter((result) => result.status === 'failed');
   if (failed.length > 0 && current !== undefined) {
@@ -528,7 +537,7 @@ async function updateDependency(
     );
     if (choice === 'Undo') {
       await undoResults(loaded.adapter, [request.manifestPath]);
-      await refresh(context, false);
+      await refresh(context, false, { force: true });
     }
   } finally {
     updating = false;
@@ -602,7 +611,7 @@ async function bulkUpdate(
       await undoResults(loaded.adapter, [
         ...new Set(succeeded.map((result) => result.manifestPath)),
       ]);
-      await refresh(context, false);
+      await refresh(context, false, { force: true });
     }
   } finally {
     updating = false;
@@ -657,7 +666,7 @@ async function tidyProjects(
         }
       }
     });
-    await refresh(context, false);
+    await refresh(context, false, { force: true });
   } finally {
     updating = false;
   }
