@@ -94,6 +94,7 @@ export type FailureKind =
   | 'toolchain-missing'
   | 'auth-required'
   | 'network'
+  | 'verification'
   | 'timeout'
   | 'unknown';
 

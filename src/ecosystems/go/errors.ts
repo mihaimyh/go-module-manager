@@ -17,6 +17,9 @@ const PRIVATE_PATTERNS =
 const NETWORK_PATTERNS =
   /dial tcp|no such host|getaddrinfo|network is unreachable|connection refused|connection reset|proxyconnect|TLS handshake timeout|i\/o timeout|temporary failure in name resolution/i;
 
+const VERIFICATION_PATTERNS =
+  /sumdb|malformed note|verifying go\.mod|checksum database|reading tree note/i;
+
 /** Exit code 124 is ours: the runner killed a command that ran out of time. */
 export function failureKindFor(exitCode: number, stderr: string): FailureKind {
   if (exitCode === 124) {
@@ -27,6 +30,9 @@ export function failureKindFor(exitCode: number, stderr: string): FailureKind {
   }
   if (PRIVATE_PATTERNS.test(stderr)) {
     return 'auth-required';
+  }
+  if (VERIFICATION_PATTERNS.test(stderr)) {
+    return 'verification';
   }
   if (NETWORK_PATTERNS.test(stderr)) {
     return 'network';

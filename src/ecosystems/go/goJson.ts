@@ -25,6 +25,9 @@ export interface ModuleListEntry {
     readonly Version?: string;
     readonly Time?: string;
   };
+  readonly Error?: {
+    readonly Err?: string;
+  };
 }
 
 /**

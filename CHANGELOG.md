@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- One module failing verification no longer blanks the whole update lookup. `go list -m -u -e` keeps the modules that resolved, and a checksum-database error is classified as `verification` with Retry.
+
 ## 0.1.3
 
 ### Fixed

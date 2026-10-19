@@ -43,7 +43,7 @@ describe('advisory wiring', () => {
           exitCode: 0,
         };
       }
-      if (args.join(' ') === 'list -m -u -json all') {
+      if (args.join(' ') === 'list -m -u -e -json all') {
         return {
           stdout: JSON.stringify({ Path: 'rsc.io/quote', Version: 'v1.5.1' }),
           stderr: '',

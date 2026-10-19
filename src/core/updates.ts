@@ -96,6 +96,7 @@ const KNOWN_KINDS: readonly FailureKind[] = [
   'toolchain-missing',
   'auth-required',
   'network',
+  'verification',
   'timeout',
   'unknown',
 ];

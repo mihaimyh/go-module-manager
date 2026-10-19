@@ -30,6 +30,7 @@ const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly 
   'toolchain-missing': { action: 'install', label: 'Install Go' },
   'auth-required': { action: 'retry', label: 'Retry' },
   network: { action: 'retry', label: 'Retry' },
+  verification: { action: 'retry', label: 'Retry' },
   timeout: { action: 'retry', label: 'Retry' },
   unknown: { action: 'retry', label: 'Retry' },
 };

@@ -62,7 +62,7 @@ describe('resolving a project', () => {
     ]);
 
     expect(runner.calls).toHaveLength(1);
-    expect(runner.calls[0]?.args).toEqual(['list', '-m', '-u', '-json', 'all']);
+    expect(runner.calls[0]?.args).toEqual(['list', '-m', '-u', '-e', '-json', 'all']);
     expect(runner.calls[0]?.options.cwd).toBe(dirname(manifestPath));
     expect(runner.calls[0]?.options.env.GOWORK).toBe('off');
   });
@@ -102,8 +102,7 @@ describe('resolving a project', () => {
     expect(left).toEqual(right);
   });
 
-  it('reports the toolchain error instead of an empty build list', async () => {
-    const manifestPath = moduleWithFiles('module example.com/a\n');
+  it('reports the toolchain error instead of an empty build list', async () => {    const manifestPath = moduleWithFiles('module example.com/a\n');
     const runner = new FakeRunner(() => ({
       stdout: '',
       stderr: 'go: missing go.sum entry for go.mod file',
@@ -115,6 +114,51 @@ describe('resolving a project', () => {
     ).rejects.toMatchObject({
       message: expect.stringMatching(/missing go\.sum entry/),
       kind: 'missing-lock-entry',
+    });
+  });
+});
+
+describe('partial failures', () => {
+  it('keeps the modules that resolved when one module errors', async () => {
+    const manifestPath = moduleWithFiles('module example.com/a\n');
+    const stdout = [
+      JSON.stringify({
+        Path: 'rsc.io/quote',
+        Version: 'v1.5.1',
+        Update: { Version: 'v1.5.2' },
+      }),
+      JSON.stringify({
+        Path: 'cloud.google.com/go/aiplatform',
+        Version: 'v1.126.0',
+        Error: { Err: 'reading tree note: malformed note' },
+      }),
+    ].join('\n');
+    const runner = new FakeRunner(() => ({ stdout, stderr: '', exitCode: 0 }));
+
+    const resolved = await createProjectResolver(runner).resolve(manifestPath);
+
+    expect(resolved.dependencies.map((dependency) => dependency.name)).toEqual([
+      'rsc.io/quote',
+      'cloud.google.com/go/aiplatform',
+    ]);
+  });
+
+  it('reports the per-module error when nothing resolved', async () => {
+    const manifestPath = moduleWithFiles('module example.com/a\n');
+    const runner = new FakeRunner(() => ({
+      stdout: JSON.stringify({
+        Path: 'cloud.google.com/go/aiplatform',
+        Error: { Err: 'reading tree note: malformed note' },
+      }),
+      stderr: '',
+      exitCode: 0,
+    }));
+
+    await expect(
+      createProjectResolver(runner).resolve(manifestPath),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/malformed note/),
+      kind: 'verification',
     });
   });
 });

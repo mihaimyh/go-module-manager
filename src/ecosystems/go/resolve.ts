@@ -62,7 +62,7 @@ async function resolveProject(
   manifestPath: string,
   runner: GoRunner,
 ): Promise<ResolvedProject> {
-  const result = await runner.run(['list', '-m', '-u', '-json', 'all'], {
+  const result = await runner.run(['list', '-m', '-u', '-e', '-json', 'all'], {
     cwd: dirname(manifestPath),
     env: goEnv(),
     timeoutMs: UPDATE_TIMEOUT_MS,
@@ -81,6 +81,18 @@ async function resolveProject(
   const dependencies = parseModuleList(result.stdout)
     .filter(hasVersion)
     .map(toResolvedDependency);
+
+  // `-e` keeps the modules that resolved; if nothing at all resolved, the
+  // first per-module error is the useful message.
+  if (dependencies.length === 0) {
+    const firstError = parseModuleList(result.stdout).find(
+      (entry) => typeof entry.Error?.Err === 'string',
+    );
+    throw new GoCommandError(
+      failureKindFor(result.exitCode, firstError?.Error?.Err ?? result.stderr),
+      `${manifestPath}: ${firstLine(firstError?.Error?.Err ?? result.stderr)}`,
+    );
+  }
 
   return { manifestPath, dependencies };
 }
