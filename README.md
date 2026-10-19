@@ -63,7 +63,18 @@ npm run install:local   # package + install into Cursor / Code / Insiders on PAT
 
 Press `F5` to launch the extension host against the fixture workspace in `test/fixtures/workspace`.
 
-Publishing uses Microsoft Entra ID from a developer machine:
+Publishing uses Microsoft Entra ID from a developer machine. Prefer the local release script, which bumps from the latest `v*` tag, requires a matching `CHANGELOG.md` section, commits, tags, pushes, and publishes:
+
+```sh
+az login
+# Draft ## 0.1.24 (or whatever --dry-run prints) in CHANGELOG.md, then:
+npm run publish:local -- --dry-run   # show the next tag
+npm run publish:local                # patch bump from latest v* tag
+npm run publish:local -- minor
+npm run publish:local -- 0.2.0
+```
+
+Or by hand:
 
 ```sh
 az login

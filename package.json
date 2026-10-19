@@ -97,6 +97,7 @@
     "harness": "npm run build && node scripts/harness.mjs",
     "package": "npm run typecheck && npm run build && vsce package --no-dependencies",
     "install:local": "bash scripts/install-local.sh",
+    "publish:local": "bash scripts/publish-local.sh",
     "vscode:prepublish": "npm run build"
   },
   "dependencies": {
