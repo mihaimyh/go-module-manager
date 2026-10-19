@@ -107,14 +107,14 @@ describe('project failures', () => {
           {
             manifestPath: MANIFEST,
             projectName: 'example.com/a',
-            kind: 'missing-go-sum',
+            kind: 'missing-lock-entry',
             message: 'go: missing go.sum entry',
           },
         ],
       },
     );
 
-    expect(model.projects[0]?.failure?.kind).toBe('missing-go-sum');
+    expect(model.projects[0]?.failure?.kind).toBe('missing-lock-entry');
     expect(model.rows).toHaveLength(1);
   });
 
@@ -144,7 +144,7 @@ describe('project failures', () => {
           {
             manifestPath: MANIFEST,
             projectName: 'example.com/a',
-            kind: 'missing-go-sum',
+            kind: 'missing-lock-entry',
             message: 'go: missing go.sum entry',
           },
         ],

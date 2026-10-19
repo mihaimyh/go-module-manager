@@ -97,6 +97,18 @@ _Avoid_: selected version (Go-only), locked version
 **Scope**:
 Why a dependency is needed: at runtime, only for development, or optionally. Go only ever fills this with runtime.
 
+**Failure**:
+A project state where the toolchain could not read or resolve it. Shown with the toolchain's own words, never as a silent gap.
+_Avoid_: error (that is the toolchain's message), warning
+
+**Failure kind**:
+The classification that decides the recovery action: missing lock entry, missing toolchain, authentication required, timeout, unknown.
+_Avoid_: error code
+
+**Recovery action**:
+The single action a failure offers: repair the lock file, install the toolchain, or retry.
+_Avoid_: fix, auto-repair
+
 ## Security
 
 **Advisory**:

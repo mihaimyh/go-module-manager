@@ -92,9 +92,9 @@ export async function resolveProjects(
 }
 
 const KNOWN_KINDS: readonly FailureKind[] = [
-  'missing-go-sum',
-  'go-not-found',
-  'private-module',
+  'missing-lock-entry',
+  'toolchain-missing',
+  'auth-required',
   'timeout',
   'unknown',
 ];

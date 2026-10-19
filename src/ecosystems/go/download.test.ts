@@ -54,7 +54,7 @@ describe('downloading modules', () => {
     });
 
     await expect(downloadModules(manifestPath, runner)).rejects.toMatchObject({
-      kind: 'private-module',
+      kind: 'auth-required',
       message: expect.stringMatching(/go mod download failed/),
     });
   });

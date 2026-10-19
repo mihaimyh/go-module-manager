@@ -20,10 +20,10 @@ export function failureKindFor(exitCode: number, stderr: string): FailureKind {
     return 'timeout';
   }
   if (/missing go\.sum entry/i.test(stderr)) {
-    return 'missing-go-sum';
+    return 'missing-lock-entry';
   }
   if (PRIVATE_PATTERNS.test(stderr)) {
-    return 'private-module';
+    return 'auth-required';
   }
   return 'unknown';
 }

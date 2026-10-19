@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { HostToWebview, ResolveProgress, WebviewToHost } from '../core/messages';
+import type { HostToWebview, RecoveryAction, ResolveProgress, WebviewToHost } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { App } from './App';
 import { vscode } from './vscode';
@@ -31,7 +31,7 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
-  const onRecover = (manifestPath: string, action: 'download' | 'retry' | 'install'): void => {
+  const onRecover = (manifestPath: string, action: RecoveryAction): void => {
     const message: WebviewToHost = { type: 'recover', manifestPath, action };
     vscode.postMessage(message);
   };

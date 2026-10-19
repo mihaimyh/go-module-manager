@@ -23,6 +23,14 @@ const KIND_LABELS: Record<UpdateKind, string> = {
   release: 'release',
 };
 
+const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly label: string }> = {
+  'missing-lock-entry': { action: 'repair', label: 'Run go mod download' },
+  'toolchain-missing': { action: 'install', label: 'Install Go' },
+  'auth-required': { action: 'retry', label: 'Retry' },
+  timeout: { action: 'retry', label: 'Retry' },
+  unknown: { action: 'retry', label: 'Retry' },
+};
+
 type Tab = 'dependencies' | 'updates' | 'vulnerabilities';
 
 interface AppProps {
@@ -42,6 +50,15 @@ export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.El
 
   const rows = model?.rows ?? [];
   const projects = model?.projects ?? [];
+  const failedManifests = useMemo(
+    () =>
+      new Set(
+        projects
+          .filter((project) => project.failure !== undefined)
+          .map((project) => project.manifestPath),
+      ),
+    [projects],
+  );
   const updates = rows.filter((row) => row.candidate !== undefined);
   const advisoryIds = new Set(rows.flatMap((row) => row.advisories.map((a) => a.id)));
 
@@ -230,9 +247,11 @@ export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.El
                 <button
                   type="button"
                   className="button secondary"
-                  onClick={() => onRecover(project.manifestPath, actionFor(failure.kind))}
+                  onClick={() =>
+                    onRecover(project.manifestPath, RECOVERY[failure.kind].action)
+                  }
                 >
-                  {labelFor(failure.kind)}
+                  {RECOVERY[failure.kind].label}
                 </button>
               </div>
             );
@@ -279,6 +298,7 @@ export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.El
                   row={row}
                   selected={row.id === activeId}
                   checked={checked.has(row.id)}
+                  unresolved={failedManifests.has(row.manifestPath)}
                   onSelect={() => setSelectedId(row.id)}
                   onToggle={() => toggle(row.id)}
                 />
@@ -326,12 +346,14 @@ function Row({
   row,
   selected,
   checked,
+  unresolved,
   onSelect,
   onToggle,
 }: {
   readonly row: DependencyRow;
   readonly selected: boolean;
   readonly checked: boolean;
+  readonly unresolved: boolean;
   readonly onSelect: () => void;
   readonly onToggle: () => void;
 }): JSX.Element {
@@ -372,7 +394,7 @@ function Row({
         )}
       </td>
       <td className="col-update">
-        <Candidate row={row} />
+        <Candidate row={row} unresolved={unresolved} />
       </td>
       <td className="col-actions" onClick={(event) => event.stopPropagation()}>
         <details className="row-menu">
@@ -405,13 +427,20 @@ function Row({
   );
 }
 
-function Candidate({ row }: { readonly row: DependencyRow }): JSX.Element {
+function Candidate({
+  row,
+  unresolved,
+}: {
+  readonly row: DependencyRow;
+  readonly unresolved: boolean;
+}): JSX.Element {
   if (!row.candidate) {
-    return row.resolvedVersion === undefined ? (
-      <span className="muted mono">— not checked yet</span>
-    ) : (
-      <span className="muted mono">— up to date</span>
-    );
+    if (row.resolvedVersion === undefined) {
+      return (
+        <span className="muted mono">{unresolved ? '— unresolved' : '— not checked yet'}</span>
+      );
+    }
+    return <span className="muted mono">— up to date</span>;
   }
   return (
     <>
@@ -558,24 +587,4 @@ async function copyPath(path: string): Promise<void> {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value !== '';
-}
-
-function actionFor(kind: FailureKind): RecoveryAction {
-  if (kind === 'missing-go-sum') {
-    return 'download';
-  }
-  if (kind === 'go-not-found') {
-    return 'install';
-  }
-  return 'retry';
-}
-
-function labelFor(kind: FailureKind): string {
-  if (kind === 'missing-go-sum') {
-    return 'Run go mod download';
-  }
-  if (kind === 'go-not-found') {
-    return 'Install Go';
-  }
-  return 'Retry';
 }

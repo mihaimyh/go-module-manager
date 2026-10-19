@@ -58,7 +58,7 @@ function withFixtureFailure(model: PanelModel): PanelModel {
   return mergeFailure(model, {
     manifestPath: project.manifestPath,
     projectName: project.name,
-    kind: 'missing-go-sum',
+    kind: 'missing-lock-entry',
     message: 'go: missing go.sum entry for module providing package rsc.io/quote',
   });
 }

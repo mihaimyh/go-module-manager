@@ -13,7 +13,8 @@ export function createGoAdapter(runner: GoRunner): EcosystemAdapter {
     manifestFile: 'go.mod',
     read: (workspaceRoot) => readWorkspace(workspaceRoot, runner),
     resolve: (manifestPath, options) => resolver.resolve(manifestPath, options),
-    download: (manifestPath) => downloadModules(manifestPath, runner),
+    repair: (manifestPath) => downloadModules(manifestPath, runner),
+    toolchainUrl: 'https://go.dev/dl/',
   };
 }
 

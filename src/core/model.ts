@@ -53,9 +53,9 @@ export interface ResolvedProject {
 
 /** Why a project could not be read or resolved. Drives the one recovery action. */
 export type FailureKind =
-  | 'missing-go-sum'
-  | 'go-not-found'
-  | 'private-module'
+  | 'missing-lock-entry'
+  | 'toolchain-missing'
+  | 'auth-required'
   | 'timeout'
   | 'unknown';
 

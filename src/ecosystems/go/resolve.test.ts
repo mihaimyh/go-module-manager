@@ -114,7 +114,7 @@ describe('resolving a project', () => {
       createProjectResolver(runner).resolve(manifestPath),
     ).rejects.toMatchObject({
       message: expect.stringMatching(/missing go\.sum entry/),
-      kind: 'missing-go-sum',
+      kind: 'missing-lock-entry',
     });
   });
 });

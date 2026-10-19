@@ -3,10 +3,10 @@ import { failureKindFor } from './errors';
 
 describe('classifying a go failure', () => {
   it.each([
-    ['go: missing go.sum entry for module providing package x', 'missing-go-sum'],
-    ['fatal: could not read Username for https://github.com', 'private-module'],
-    ['terminal prompts disabled', 'private-module'],
-    ['403 Forbidden', 'private-module'],
+    ['go: missing go.sum entry for module providing package x', 'missing-lock-entry'],
+    ['fatal: could not read Username for https://github.com', 'auth-required'],
+    ['terminal prompts disabled', 'auth-required'],
+    ['403 Forbidden', 'auth-required'],
     ['something else entirely', 'unknown'],
   ])('maps %s to %s', (stderr, expected) => {
     expect(failureKindFor(1, stderr)).toBe(expected);

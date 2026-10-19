@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { EcosystemAdapter } from '../core/adapter';
 import type { RecoveryAction } from '../core/messages';
-import type { PanelModel } from '../core/model';
+import { mergeFailure, type FailureKind, type PanelModel } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
@@ -18,6 +18,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('gmm.openPanel', () => openPanel(context)),
     watchManifests(context),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('gmm.goPath') && GmmPanel.isOpen()) {
+        void refresh(context, true);
+      }
+    }),
   );
 }
 
@@ -71,27 +76,57 @@ function recover(
   }
 
   if (action === 'install') {
-    void vscode.env.openExternal(vscode.Uri.parse('https://go.dev/dl/'));
+    openToolchainPage(adapter);
     return;
   }
 
-  if (action === 'download') {
-    const download = adapter.download;
-    if (!download) {
+  if (action === 'repair') {
+    const repair = adapter.repair;
+    if (!repair) {
+      void vscode.window.showErrorMessage(
+        'GMM: this project cannot be repaired automatically.',
+      );
       return;
     }
-    void download(manifestPath).then(
+    void repair(manifestPath).then(
       () => refresh(context, false),
       (error: unknown) => {
-        void vscode.window.showErrorMessage(
-          `GMM: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        showFailure(manifestPath, error);
       },
     );
     return;
   }
 
   void refresh(context, true);
+}
+
+/** A failed recovery is a project failure like any other, not a transient toast. */
+function showFailure(manifestPath: string, error: unknown): void {
+  const loaded = current;
+  if (!loaded) {
+    return;
+  }
+
+  const project = loaded.model.projects.find(
+    (candidate) => candidate.manifestPath === manifestPath,
+  );
+  const kind = (error as { kind?: FailureKind } | null)?.kind ?? 'unknown';
+  const model = mergeFailure(loaded.model, {
+    manifestPath,
+    projectName: project?.name ?? manifestPath,
+    kind,
+    message: error instanceof Error ? error.message : String(error),
+  });
+
+  current = { ...loaded, model };
+  GmmPanel.update(model);
+}
+
+function openToolchainPage(adapter: EcosystemAdapter): void {
+  if (adapter.toolchainUrl === undefined) {
+    return;
+  }
+  void vscode.env.openExternal(vscode.Uri.parse(adapter.toolchainUrl));
 }
 
 async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
@@ -140,9 +175,12 @@ async function loadModel(
       : undefined;
   const root = developmentRoot ?? folder.uri.fsPath;
 
+  let adapter: EcosystemAdapter | undefined;
+
   try {
     const goPath = vscode.workspace.getConfiguration('gmm').get<string>('goPath') ?? 'go';
-    const [adapter] = detectAdapters(root, { goPath });
+    const [detected] = detectAdapters(root, { goPath });
+    adapter = detected;
     if (!adapter) {
       void vscode.window.showErrorMessage(`GMM: no supported manifest under ${root}.`);
       return undefined;
@@ -150,10 +188,35 @@ async function loadModel(
     return { adapter, model: await adapter.read(root) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const kind = (error as { kind?: FailureKind } | null)?.kind;
+
+    if (kind === 'toolchain-missing') {
+      void offerToolchainHelp(message, adapter);
+      return undefined;
+    }
+
     void vscode.window.showErrorMessage(
       `GMM: could not read the workspace at ${root}. ${message}`,
     );
     return undefined;
+  }
+}
+
+async function offerToolchainHelp(
+  message: string,
+  adapter: EcosystemAdapter | undefined,
+): Promise<void> {
+  const choice = await vscode.window.showErrorMessage(
+    `GMM: ${message}`,
+    'Install Go',
+    'Open Settings',
+  );
+
+  if (choice === 'Install Go' && adapter !== undefined) {
+    openToolchainPage(adapter);
+  }
+  if (choice === 'Open Settings') {
+    void vscode.commands.executeCommand('workbench.action.openSettings', 'gmm.goPath');
   }
 }
 

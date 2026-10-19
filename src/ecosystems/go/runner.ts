@@ -24,7 +24,7 @@ export interface GoRunner {
 
 export class GoNotFoundError extends GoCommandError {
   constructor(goPath: string) {
-    super('go-not-found', `The ${goPath} executable was not found on PATH.`);
+    super('toolchain-missing', `The ${goPath} executable was not found on PATH.`);
     this.name = 'GoNotFoundError';
   }
 }
@@ -64,8 +64,11 @@ export function createExecGoRunner(goPath = 'go'): GoRunner {
               return;
             }
             const code = (error as { code?: unknown } | null)?.code;
+            // maxBuffer kills the child with SIGTERM too; that is not a timeout.
             const timedOut =
-              error !== null && (error.killed === true || error.signal === 'SIGTERM');
+              code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' &&
+              error !== null &&
+              (error.killed === true || error.signal === 'SIGTERM');
 
             resolve({
               stdout,

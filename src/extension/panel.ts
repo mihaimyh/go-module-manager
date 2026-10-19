@@ -36,7 +36,7 @@ export class GmmPanel {
         if (
           message.type === 'recover' &&
           typeof message.manifestPath === 'string' &&
-          (message.action === 'download' ||
+          (message.action === 'repair' ||
             message.action === 'retry' ||
             message.action === 'install')
         ) {

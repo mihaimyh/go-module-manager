@@ -12,7 +12,7 @@ export type HostToWebview = {
   readonly progress?: ResolveProgress;
 };
 
-export type RecoveryAction = 'download' | 'retry' | 'install';
+export type RecoveryAction = 'repair' | 'retry' | 'install';
 
 export type WebviewToHost =
   | { readonly type: 'ready' }

@@ -69,9 +69,12 @@ async function resolveProject(
   });
 
   if (result.exitCode !== 0) {
+    const kind = failureKindFor(result.exitCode, result.stderr);
     throw new GoCommandError(
-      failureKindFor(result.exitCode, result.stderr),
-      `${manifestPath}: ${firstLine(result.stderr)}`,
+      kind,
+      kind === 'timeout'
+        ? `${manifestPath}: the update lookup timed out after ${UPDATE_TIMEOUT_MS / 1000}s`
+        : `${manifestPath}: ${firstLine(result.stderr)}`,
     );
   }
 

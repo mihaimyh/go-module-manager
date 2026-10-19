@@ -45,11 +45,15 @@ export async function readWorkspace(
     const manifestPath = join(directory, 'go.mod');
 
     if (result.exitCode !== 0) {
+      const kind = failureKindFor(result.exitCode, result.stderr);
       failures.push({
         manifestPath,
         projectName: basename(directory),
-        kind: failureKindFor(result.exitCode, result.stderr),
-        message: messageOf(result.stderr, 'go mod edit failed'),
+        kind,
+        message:
+          kind === 'timeout'
+            ? `The go command timed out after ${READ_TIMEOUT_MS / 1000}s.`
+            : messageOf(result.stderr, 'go mod edit failed'),
       });
       continue;
     }
