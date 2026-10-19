@@ -6,15 +6,9 @@ import type { PanelHandlers } from './handlers';
 import { renderWebviewHtml } from './webviewHtml';
 import { handleWebviewMessage } from './webviewMessages';
 
-type Subscriber = (message: HostToWebview) => void;
-
-/**
- * The editor panel. Messages published here also reach the Activity Bar view,
- * so both surfaces always render the same model.
- */
+/** The editor panel that hosts the dependency UI. */
 export class GmmPanel {
   private static current: GmmPanel | undefined;
-  private static readonly subscribers = new Set<Subscriber>();
 
   private readonly disposables: vscode.Disposable[] = [];
   private progress: ResolveProgress | undefined;
@@ -128,32 +122,16 @@ export class GmmPanel {
     return GmmPanel.current !== undefined;
   }
 
-  static hasSubscribers(): boolean {
-    return GmmPanel.subscribers.size > 0;
-  }
-
   static setOnClosed(handler: (() => void) | undefined): void {
     GmmPanel.onClosed = handler;
   }
 
   private static onClosed: (() => void) | undefined;
 
-  /** Subscribe a surface (the Activity Bar view) to every published message. */
-  static subscribe(send: Subscriber): () => void {
-    GmmPanel.subscribers.add(send);
-    return () => {
-      GmmPanel.subscribers.delete(send);
-    };
-  }
-
-  /** Every surface gets the message, including the editor panel itself. */
   private static send(message: HostToWebview): void {
     const current = GmmPanel.current;
     if (current !== undefined) {
       void current.panel.webview.postMessage(message);
-    }
-    for (const send of GmmPanel.subscribers) {
-      send(message);
     }
   }
 

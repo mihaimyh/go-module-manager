@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 
-/** The same document is used by the editor panel and the Activity Bar view. */
+/** HTML shell for the editor panel webview. */
 export function renderWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,

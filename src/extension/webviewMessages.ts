@@ -26,14 +26,13 @@ const RECOVERY_ACTIONS: readonly RecoveryAction[] = [
   'clean-checksum-cache',
 ];
 
-/** One dispatcher for both webview surfaces; validation happens here. */
+/** Validates webview messages and forwards them to the host handlers. */
 export function handleWebviewMessage(raw: unknown, target: MessageTarget): void {
   if (typeof raw !== 'object' || raw === null) {
     return;
   }
   const message = raw as RawMessage;
-  // The Activity Bar view resolves before the first model exists, so `ready`
-  // must reach the host even when there is nothing to post yet.
+  // `ready` can arrive before the first model exists; still acknowledge it.
   if (message.type === 'ready') {
     target.postModel();
     return;

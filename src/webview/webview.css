@@ -993,7 +993,7 @@ tbody th.col-module .chip {
   border: 0;
 }
 
-/* Compact mode: the Activity Bar view shows the list without the inspector. */
+/* Compact mode: narrow editor panels hide the inspector. */
 
 @media (max-width: 720px) {
   .toolbar {

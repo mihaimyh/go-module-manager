@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.19
+
+### Changed
+
+- The Activity Bar icon opens the Go Module Manager in the editor area instead of embedding the full UI in the side bar. The side bar keeps a short launcher if it stays open.
+
 ## 0.1.18
 
 ### Added

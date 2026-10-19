@@ -60,21 +60,15 @@ export function activate(context: vscode.ExtensionContext): void {
   GmmPanel.setOnClosed(abortIfIdle);
 
   const viewProvider = new GmmViewProvider({
-    extensionUri: context.extensionUri,
-    handlers,
-    getModel: () => current?.model,
-    ensureWorkspace: async () => {
-      await ensureWorkspace(context);
+    openPanel: () => {
+      void openPanel(context);
     },
-    onSurfaceClosed: abortIfIdle,
   });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('gmm.openPanel', () => openPanel(context)),
     watchManifests(context),
-    vscode.window.registerWebviewViewProvider(GmmViewProvider.viewId, viewProvider, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
+    vscode.window.registerWebviewViewProvider(GmmViewProvider.viewId, viewProvider),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('gmm.goPath') && surfaceOpen()) {
         void refresh(context, true);
@@ -133,7 +127,7 @@ export function deactivate(): void {
 }
 
 function surfaceOpen(): boolean {
-  return GmmPanel.isOpen() || GmmPanel.hasSubscribers();
+  return GmmPanel.isOpen();
 }
 
 function resetSession(): void {
@@ -236,10 +230,7 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
   GmmPanel.show(context.extensionUri, model, handlers);
 }
 
-/**
- * Loads the workspace once. The Activity Bar view can be the first surface to
- * ask, so the command and the view share this path.
- */
+/** Loads the workspace once. Shared by the open command and the Activity Bar launcher. */
 async function ensureWorkspace(
   context: vscode.ExtensionContext,
 ): Promise<PanelModel | undefined> {
