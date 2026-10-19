@@ -40,37 +40,36 @@ const html = `<!DOCTYPE html>
                 );
               }, 0);
             } else if (message && message.type === 'search') {
+              var page = message.pageToken ? Number(message.pageToken) : 0;
+              var nextPageToken = page < 3 ? String(page + 1) : undefined;
+              var items = [];
+              for (var index = 0; index < 25; index += 1) {
+                var number = page * 25 + index;
+                items.push({
+                  name: 'example.com/module-' + number,
+                  version: 'v1.0.' + number,
+                  summary: 'Synthetic module ' + number + ' used by the Browse harness to exercise paging.',
+                  importedBy: 1000 - number,
+                });
+              }
+              window.postMessage(
+                { type: 'search-loading', query: message.query || '', append: Boolean(message.pageToken) },
+                '*',
+              );
               setTimeout(function () {
                 window.postMessage(
                   {
                     type: 'search-results',
-                    query: message.query || '',
+                    response: {
+                      query: message.query || '',
+                      items: items,
+                      ...(nextPageToken === undefined ? {} : { nextPageToken }),
+                    },
                     append: Boolean(message.pageToken),
-                    results: [
-                      {
-                        modulePath: 'github.com/spf13/cobra',
-                        latestVersion: 'v1.8.1',
-                        synopsis: 'Package cobra is a commander providing a simple interface to create powerful modern CLI interfaces.',
-                        importedByCount: 158420,
-                      },
-                      {
-                        modulePath: 'golang.org/x/sync',
-                        latestVersion: 'v0.8.0',
-                        synopsis: 'Package errgroup provides synchronization, error propagation, and Context cancelation for groups of goroutines.',
-                        importedByCount: 94210,
-                        matchedPackage: 'golang.org/x/sync/errgroup',
-                      },
-                      {
-                        modulePath: 'golang.org/x/text',
-                        latestVersion: 'v0.14.0',
-                        synopsis: 'Package text provides text manipulation and internationalization utilities.',
-                        importedByCount: 82100,
-                      },
-                    ],
                   },
                   '*',
                 );
-              }, 0);
+              }, 250);
             } else if (message && message.type === 'module-metadata') {
               setTimeout(function () {
                 window.postMessage(

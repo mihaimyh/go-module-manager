@@ -61,7 +61,8 @@
     "commands": [
       {
         "command": "gmm.openPanel",
-        "title": "GMM: Open Go Module Manager",
+        "category": "GMM",
+        "title": "Open in Go Module Manager",
         "icon": "$(extensions)"
       }
     ],
@@ -70,6 +71,20 @@
         {
           "command": "gmm.openPanel",
           "when": "resourceFilename == go.mod && resourceScheme == file",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gmm.openPanel",
+          "when": "resourceFilename == go.mod && resourceScheme == file",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gmm.openPanel",
+          "when": "(resourceFilename == go.mod || resourceFilename == go.work) && resourceScheme == file",
           "group": "navigation"
         }
       ],

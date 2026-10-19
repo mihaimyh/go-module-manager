@@ -39,6 +39,8 @@ function createRecorder() {
     onOpenPanel: () => calls.push({ kind: 'open-panel', args: [] }),
     onOpenManifest: (manifestPath, name) =>
       calls.push({ kind: 'open-manifest', args: [manifestPath, name] }),
+    onUninstall: (targets) => calls.push({ kind: 'uninstall', args: [targets] }),
+    onShowOutput: () => calls.push({ kind: 'show-output', args: [] }),
     onWhy: (manifestPath, name) => calls.push({ kind: 'why', args: [manifestPath, name] }),
     onReleaseNotes: (modulePath, version) =>
       calls.push({ kind: 'release-notes', args: [modulePath, version] }),
@@ -115,4 +117,50 @@ describe('handleWebviewMessage', () => {
       },
     ]);
   });
+
+  it('routes uninstall for known rows, show-output, and manifest-level open-manifest', () => {
+    const { calls, handlers } = createRecorder();
+    handleWebviewMessage(
+      {
+        type: 'uninstall',
+        targets: [
+          { manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote' },
+          { manifestPath: '/repo/b/go.mod', name: 'rsc.io/quote' },
+        ],
+      },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+    handleWebviewMessage(
+      { type: 'show-output' },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+    handleWebviewMessage(
+      { type: 'open-manifest', manifestPath: '/repo/b/go.mod' },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+    handleWebviewMessage(
+      { type: 'open-manifest', manifestPath: '/repo/b/go.mod', name: 'rsc.io/quote' },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+    handleWebviewMessage(
+      { type: 'open-manifest', manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote' },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+    handleWebviewMessage(
+      { type: 'open-manifest', manifestPath: '/outside/go.mod' },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+
+    expect(calls).toEqual([
+      {
+        kind: 'uninstall',
+        args: [[{ manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote' }]],
+      },
+      { kind: 'show-output', args: [] },
+      { kind: 'open-manifest', args: ['/repo/b/go.mod', undefined] },
+      { kind: 'open-manifest', args: ['/repo/b/go.mod', undefined] },
+      { kind: 'open-manifest', args: ['/repo/a/go.mod', 'rsc.io/quote'] },
+    ]);
+  });
 });
+

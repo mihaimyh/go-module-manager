@@ -5,6 +5,7 @@ import type {
   UpdateRequest,
   UpdateResult,
 } from '../core/adapter';
+import type { PanelFocus } from '../core/contextMenu';
 import type { DependencySelection, RecoveryAction, ReleaseNotes } from '../core/messages';
 import {
   advisoryTargets,
@@ -24,13 +25,14 @@ import {
   type GoInvocation,
 } from '../ecosystems/go/runner';
 import { failureKindFor } from '../ecosystems/go/errors';
-import { requireLineNumber } from '../ecosystems/go/requireLine';
+import { requiredModuleAtLine, requireLineNumber } from '../ecosystems/go/requireLine';
 import {
   planBulkUpdate,
   planTargetChanges,
   shouldRetryFailedGroup,
   type TargetChange,
 } from '../core/bulk';
+import { removeSafety } from '../core/version';
 import { workspaceRoots } from '../core/workspaceRoots';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { fetchReleaseNotes } from '../ecosystems/go/releases';
@@ -56,6 +58,8 @@ let environmentLogged = false;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 let searchCycle = 0;
+/** One append per page token: the sentinel can fire again while the request is open. */
+let pendingAppend: { readonly token: string; readonly cycle: number } | undefined;
 let session = new AbortController();
 const releaseNotesCache = new Map<string, Promise<ReleaseNotes | undefined>>();
 const moduleMetadataCache = new Map<string, Promise<ModuleMetadata | undefined>>();
@@ -73,7 +77,15 @@ export function activate(context: vscode.ExtensionContext): void {
   GmmPanel.setOnClosed(abortIfIdle);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('gmm.openPanel', () => openPanel(context)),
+    vscode.commands.registerCommand(
+      'gmm.openPanel',
+      (resource?: unknown, selectedResources?: unknown) =>
+        openPanel(
+          context,
+          resource instanceof vscode.Uri ? resource : undefined,
+          Array.isArray(selectedResources),
+        ),
+    ),
     watchManifests(context),
     registerActivityBarLauncher(() => {
       void openPanel(context);
@@ -103,6 +115,9 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     onBulkUpdate: (selection) => {
       void bulkUpdate(context, selection);
     },
+    onUninstall: (targets) => {
+      void uninstallDependencies(context, targets);
+    },
     onTidy: (manifests) => {
       void tidyProjects(context, manifests);
     },
@@ -117,6 +132,9 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     },
     onOpenPanel: () => {
       void openPanel(context);
+    },
+    onShowOutput: () => {
+      output?.show(true);
     },
     onOpenManifest: (manifestPath, name) => {
       void openManifest(manifestPath, name);
@@ -253,18 +271,57 @@ function logGoEnvironment(goPath: string, cwd: string): void {
     });
 }
 
-async function openPanel(context: vscode.ExtensionContext): Promise<void> {
+async function openPanel(
+  context: vscode.ExtensionContext,
+  resource?: vscode.Uri,
+  fromExplorer = false,
+): Promise<void> {
   if (handlers === undefined) {
     return;
   }
+  const focus = resolveLaunchFocus(resource, fromExplorer, vscode.window.activeTextEditor);
   // Open the editor tab first so the Activity Bar click is not stuck waiting
   // on `go` / discovery before anything appears in the editor area.
   GmmPanel.show(context.extensionUri, handlers, current?.model);
+  if (focus !== undefined) {
+    GmmPanel.postFocus(focus);
+  }
   const model = await ensureWorkspace(context);
   if (model === undefined) {
     return;
   }
   GmmPanel.show(context.extensionUri, handlers, model);
+}
+
+function resolveLaunchFocus(
+  resource: vscode.Uri | undefined,
+  fromExplorer: boolean,
+  editor: vscode.TextEditor | undefined,
+): PanelFocus | undefined {
+  if (resource === undefined || resource.scheme !== 'file') {
+    return undefined;
+  }
+  const fsPath = resource.fsPath;
+  const lower = fsPath.toLowerCase();
+  if (lower.endsWith('go.work')) {
+    return {};
+  }
+  if (!lower.endsWith('go.mod')) {
+    return undefined;
+  }
+  let moduleName: string | undefined;
+  if (
+    !fromExplorer &&
+    editor !== undefined &&
+    editor.document.uri.fsPath.toLowerCase() === lower
+  ) {
+    const line = editor.selection.active.line + 1;
+    moduleName = requiredModuleAtLine(editor.document.getText(), line);
+  }
+  return {
+    manifestPath: fsPath,
+    ...(moduleName === undefined ? {} : { moduleName }),
+  };
 }
 
 /** Loads the workspace once. Shared by the open command and the Activity Bar launcher. */
@@ -927,7 +984,20 @@ async function requestSearch(query: string, pageToken?: string): Promise<void> {
   }
 
   const append = pageToken !== undefined && pageToken !== '';
+  if (!append) {
+    pendingAppend = undefined;
+  } else if (
+    pendingAppend !== undefined &&
+    pendingAppend.cycle === searchCycle &&
+    pendingAppend.token === pageToken
+  ) {
+    return;
+  }
+
   const token = append ? searchCycle : ++searchCycle;
+  if (append) {
+    pendingAppend = { token: pageToken ?? '', cycle: token };
+  }
   GmmPanel.postSearchLoading(query, append);
 
   try {
@@ -946,6 +1016,10 @@ async function requestSearch(query: string, pageToken?: string): Promise<void> {
       { query: query.trim(), items: [] },
       { append, error: messageOf(error) },
     );
+  } finally {
+    if (pendingAppend?.cycle === token) {
+      pendingAppend = undefined;
+    }
   }
 }
 
@@ -1203,15 +1277,154 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function openManifest(manifestPath: string, name: string): Promise<void> {
+async function uninstallDependencies(
+  context: vscode.ExtensionContext,
+  selection: readonly DependencySelection[],
+): Promise<void> {
+  const loaded = current;
+  if (loaded === undefined || loaded.adapter.update === undefined || selection.length === 0) {
+    return;
+  }
+
+  const targets: TargetChange[] = selection.map((entry) => ({
+    manifestPath: entry.manifestPath,
+    name: entry.name,
+    version: 'none',
+  }));
+  const groups = planTargetChanges(targets);
+  if (groups.length === 0) {
+    return;
+  }
+
+  const outcome = await runAction('Checking uninstall impact…', async () => {
+    const warnings: string[] = [];
+    let needsConfirm = false;
+
+    for (const entry of selection) {
+      let whyText: string | undefined;
+      if (loaded.adapter.why !== undefined) {
+        try {
+          whyText = await loaded.adapter.why(entry.manifestPath, entry.name);
+        } catch {
+          whyText = undefined;
+        }
+      }
+
+      let previewImpact:
+        | readonly {
+            readonly name: string;
+            readonly kind: 'raised' | 'lowered' | 'removed';
+            readonly from?: string;
+            readonly to?: string;
+          }[]
+        | undefined;
+      if (loaded.adapter.preview !== undefined) {
+        try {
+          const previewResult = await loaded.adapter.preview({
+            manifestPath: entry.manifestPath,
+            changes: [{ name: entry.name, version: 'none' }],
+            snapshot: false,
+          });
+          if (previewResult.status === 'ready') {
+            previewImpact = previewResult.impact;
+          }
+        } catch {
+          previewImpact = undefined;
+        }
+      }
+
+      const safety = removeSafety({
+        moduleName: entry.name,
+        whyText,
+        previewImpact,
+      });
+      if (safety.needsConfirm) {
+        needsConfirm = true;
+        const project =
+          loaded.model.projects.find((item) => item.manifestPath === entry.manifestPath)
+            ?.name ?? entry.manifestPath;
+        if (safety.importedByCode) {
+          warnings.push(
+            `Source files in ${project} still import ${entry.name}; removing it from go.mod leaves those imports unresolved until edited or undone.`,
+          );
+        }
+        for (const collateral of safety.collateral) {
+          warnings.push(
+            collateral.kind === 'removed'
+              ? `${project}: drops ${collateral.name} ${collateral.from ?? ''}`.trim()
+              : `${project}: ${collateral.kind} ${collateral.name} ${collateral.from ?? ''} → ${collateral.to ?? ''}`.trim(),
+          );
+        }
+      }
+    }
+
+    if (needsConfirm) {
+      const moduleNames = [...new Set(selection.map((entry) => entry.name))].join(', ');
+      const detail =
+        warnings.length > 0
+          ? `\n\n${warnings.join('\n')}`
+          : '\n\nImpact could not be verified beforehand.';
+      const confirmed = await vscode.window.showWarningMessage(
+        `Uninstall ${moduleNames} from ${groups.length} go.mod file(s)?${detail}`,
+        { modal: true },
+        'Uninstall',
+      );
+      if (confirmed !== 'Uninstall') {
+        return undefined;
+      }
+    }
+
+    setBusy(
+      selection.length === 1 ? 'Removing dependency…' : 'Removing dependencies…',
+    );
+    return runGroups(context, loaded.adapter, groups);
+  });
+
+  if (outcome === undefined) {
+    return;
+  }
+
+  const failed = outcome.filter((result) => result.status === 'failed');
+  const succeeded = outcome.filter((result) => result.status === 'updated');
+
+  if (failed.length > 0) {
+    showUpdateFailure(
+      selection.length === 1 && selection[0] !== undefined
+        ? `GMM: ${selection[0].name} could not be removed.`
+        : `GMM: ${failed.length} of ${outcome.length} removals failed.`,
+      failed[0]?.message ?? '',
+    );
+  }
+  if (succeeded.length === 0) {
+    return;
+  }
+
+  const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
+  const toastMessage =
+    selection.length === 1 && selection[0] !== undefined
+      ? `GMM: ${selection[0].name} removed`
+      : `GMM: removed from ${projectCount} project(s).`;
+  const choice = await vscode.window.showInformationMessage(toastMessage, 'Undo');
+  if (choice === 'Undo') {
+    await runAction('Undoing…', async () => {
+      await undoResults(loaded.adapter, [
+        ...new Set(succeeded.map((result) => result.manifestPath)),
+      ]);
+      await refresh(context, false, { force: true });
+    });
+  }
+}
+
+async function openManifest(manifestPath: string, name?: string): Promise<void> {
   const uri = vscode.Uri.file(manifestPath);
   const document = await vscode.workspace.openTextDocument(uri);
   const editor = await vscode.window.showTextDocument(document, { preview: true });
-  const line = requireLineNumber(document.getText(), name);
-  if (line === undefined) {
-    return;
-  }
+  const line =
+    name === undefined || name.trim() === ''
+      ? 1
+      : (requireLineNumber(document.getText(), name) ?? 1);
   const position = new vscode.Position(line - 1, 0);
   editor.selection = new vscode.Selection(position, position);
   editor.revealRange(new vscode.Range(position, position));
 }
+

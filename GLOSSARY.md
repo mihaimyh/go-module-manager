@@ -137,3 +137,9 @@ The lowest version outside an advisory's affected range for a module.
 
 **GMM**:
 Go Module Manager, this extension.
+
+**Browse query**:
+The text a keyword search in the Browse tab runs. An empty query lists popular modules rather than nothing.
+
+**Search page**:
+One batch of Browse results returned by the module index, with the option to ask for the next batch while more remain. Loading the next page adds to the results already on screen; it never replaces them.

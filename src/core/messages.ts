@@ -58,6 +58,11 @@ export type HostToWebview =
       readonly type: 'module-metadata';
       readonly modulePath: string;
       readonly metadata?: ModuleMetadata;
+    }
+  | {
+      readonly type: 'focus';
+      readonly manifestPath?: string;
+      readonly moduleName?: string;
     };
 
 export type RecoveryAction =
@@ -95,6 +100,10 @@ export type WebviewToHost =
       readonly selection: readonly DependencySelection[];
     }
   | {
+      readonly type: 'uninstall';
+      readonly targets: readonly DependencySelection[];
+    }
+  | {
       readonly type: 'tidy';
       readonly manifests: readonly string[];
     }
@@ -108,10 +117,11 @@ export type WebviewToHost =
     }
   | { readonly type: 'install-scanner' }
   | { readonly type: 'open-panel' }
+  | { readonly type: 'show-output' }
   | {
       readonly type: 'open-manifest';
       readonly manifestPath: string;
-      readonly name: string;
+      readonly name?: string;
     }
   | {
       readonly type: 'why';
@@ -139,3 +149,4 @@ export type WebviewToHost =
       readonly modulePath: string;
       readonly version?: string;
     };
+

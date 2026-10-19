@@ -115,6 +115,13 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
       }
       return;
     }
+    case 'uninstall': {
+      const targets = toSelection(message.targets, model);
+      if (targets.length > 0) {
+        target.handlers.onUninstall(targets);
+      }
+      return;
+    }
     case 'tidy':
       target.handlers.onTidy(toManifests(message.manifests, model));
       return;
@@ -135,17 +142,30 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
     case 'open-panel':
       target.handlers.onOpenPanel();
       return;
-    case 'open-manifest':
-      if (
-        typeof message.manifestPath === 'string' &&
-        typeof message.name === 'string' &&
-        model.rows.some(
-          (row) => row.manifestPath === message.manifestPath && row.name === message.name,
-        )
-      ) {
-        target.handlers.onOpenManifest(message.manifestPath, message.name);
-      }
+    case 'show-output':
+      target.handlers.onShowOutput();
       return;
+    case 'open-manifest': {
+      if (
+        typeof message.manifestPath !== 'string' ||
+        !model.projects.some((project) => project.manifestPath === message.manifestPath)
+      ) {
+        return;
+      }
+      const name =
+        typeof message.name === 'string' && message.name.trim() !== ''
+          ? message.name
+          : undefined;
+      const installedName =
+        name !== undefined &&
+        model.rows.some(
+          (row) => row.manifestPath === message.manifestPath && row.name === name,
+        )
+          ? name
+          : undefined;
+      target.handlers.onOpenManifest(message.manifestPath, installedName);
+      return;
+    }
     case 'why':
       if (
         typeof message.manifestPath === 'string' &&

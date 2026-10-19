@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ModuleMetadata, PreviewResult, SearchResult } from '../core/adapter';
+import type { ModuleMetadata, PreviewResult } from '../core/adapter';
 import type { TargetChange } from '../core/bulk';
 import type {
   DependencySelection,
@@ -12,6 +12,12 @@ import type {
 } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { App } from './App';
+import {
+  emptySearchState,
+  finishSearch,
+  startSearch,
+  type SearchState,
+} from './searchState';
 import { vscode } from './vscode';
 import './webview.css';
 
@@ -24,11 +30,13 @@ interface ViewState {
   readonly why?: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
   readonly releaseNotes?: Readonly<Record<string, ReleaseNotes | null>>;
   readonly preview?: PreviewResult;
-  readonly searchItems?: readonly SearchResult[];
-  readonly searchLoading?: boolean;
-  readonly searchNextPageToken?: string;
-  readonly searchError?: string;
+  readonly search?: SearchState;
   readonly moduleMetadata?: Readonly<Record<string, ModuleMetadata | null>>;
+  readonly focus?: {
+    readonly id: number;
+    readonly manifestPath?: string;
+    readonly moduleName?: string;
+  };
 }
 
 function Root(): JSX.Element {
@@ -92,27 +100,20 @@ function Root(): JSX.Element {
       if (message.type === 'search-loading') {
         setState((current) => ({
           ...current,
-          searchLoading: true,
-          searchError: undefined,
+          search: startSearch(current.search ?? emptySearchState, message.append === true),
         }));
       }
       if (message.type === 'search-results') {
         const { response, append, error } = message;
-        setState((current) => {
-          const previous = append === true ? (current.searchItems ?? []) : [];
-          const seen = new Set(previous.map((item) => item.name));
-          const merged = [
-            ...previous,
-            ...response.items.filter((item) => !seen.has(item.name)),
-          ];
-          return {
-            ...current,
-            searchItems: merged,
-            searchLoading: false,
-            searchNextPageToken: response.nextPageToken,
-            searchError: error,
-          };
-        });
+        setState((current) => ({
+          ...current,
+          search: finishSearch(
+            current.search ?? emptySearchState,
+            response,
+            append === true,
+            error,
+          ),
+        }));
       }
       if (message.type === 'module-metadata') {
         const { modulePath, metadata } = message;
@@ -121,6 +122,17 @@ function Root(): JSX.Element {
           moduleMetadata: {
             ...current.moduleMetadata,
             [modulePath]: metadata ?? null,
+          },
+        }));
+      }
+      if (message.type === 'focus') {
+        const { manifestPath, moduleName } = message;
+        setState((current) => ({
+          ...current,
+          focus: {
+            id: (current.focus?.id ?? 0) + 1,
+            ...(manifestPath === undefined ? {} : { manifestPath }),
+            ...(moduleName === undefined ? {} : { moduleName }),
           },
         }));
       }
@@ -156,6 +168,11 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onUninstall = (targets: readonly DependencySelection[]): void => {
+    const message: WebviewToHost = { type: 'uninstall', targets };
+    vscode.postMessage(message);
+  };
+
   const onTidy = (manifests: readonly string[]): void => {
     const message: WebviewToHost = { type: 'tidy', manifests };
     vscode.postMessage(message);
@@ -181,8 +198,17 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
-  const onOpenManifest = (manifestPath: string, name: string): void => {
-    const message: WebviewToHost = { type: 'open-manifest', manifestPath, name };
+  const onShowOutput = (): void => {
+    const message: WebviewToHost = { type: 'show-output' };
+    vscode.postMessage(message);
+  };
+
+  const onOpenManifest = (manifestPath: string, name?: string): void => {
+    const message: WebviewToHost = {
+      type: 'open-manifest',
+      manifestPath,
+      ...(name === undefined ? {} : { name }),
+    };
     vscode.postMessage(message);
   };
 
@@ -226,9 +252,11 @@ function Root(): JSX.Element {
       busy={state.busy}
       versionsLoading={state.versionsLoading ?? {}}
       clearSignal={clearSignal}
+      focus={state.focus}
       versions={state.versions ?? {}}
       onVersions={onVersions}
       onOpenPanel={onOpenPanel}
+      onShowOutput={onShowOutput}
       onOpenManifest={onOpenManifest}
       why={state.why ?? {}}
       onWhy={onWhy}
@@ -236,10 +264,7 @@ function Root(): JSX.Element {
       onReleaseNotes={onReleaseNotes}
       preview={state.preview}
       onPreview={onPreview}
-      searchItems={state.searchItems ?? []}
-      searchLoading={state.searchLoading === true}
-      searchNextPageToken={state.searchNextPageToken}
-      searchError={state.searchError}
+      search={state.search ?? emptySearchState}
       onSearch={onSearch}
       moduleMetadata={state.moduleMetadata ?? {}}
       onModuleMetadata={onModuleMetadata}
@@ -248,6 +273,7 @@ function Root(): JSX.Element {
       onUpdate={onUpdate}
       onApplyTargets={onApplyTargets}
       onBulkUpdate={onBulkUpdate}
+      onUninstall={onUninstall}
       onTidy={onTidy}
       onScan={onScan}
       onInstallScanner={onInstallScanner}

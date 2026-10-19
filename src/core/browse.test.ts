@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   browseModuleStatus,
+  browseModuleStatusIndex,
   defaultCheckedManifests,
   initialTabFromHash,
   planInspectorTargets,
@@ -69,6 +70,24 @@ describe('browseModuleStatus', () => {
       label: '2 versions',
       indirect: false,
     });
+  });
+
+  it('indexes a page of modules in one pass with the same statuses', () => {
+    const rows = [
+      makeRow('example.com/a', '/repo/a/go.mod', 'rsc.io/quote', 'v1.5.1'),
+      makeRow('example.com/b', '/repo/b/go.mod', 'rsc.io/quote', 'v1.5.2'),
+      makeRow('example.com/a', '/repo/a/go.mod', 'github.com/spf13/cobra', 'v1.9.0', true),
+    ];
+    const searched = ['rsc.io/quote', 'github.com/spf13/cobra', 'golang.org/x/sync'];
+
+    const index = browseModuleStatusIndex(searched, rows, 'all');
+
+    for (const modulePath of searched) {
+      expect(index.get(modulePath)).toEqual(browseModuleStatus(modulePath, rows, 'all'));
+    }
+    expect(browseModuleStatusIndex(searched, rows, 'example.com/b').get('rsc.io/quote')).toEqual(
+      browseModuleStatus('rsc.io/quote', rows, 'example.com/b'),
+    );
   });
 });
 

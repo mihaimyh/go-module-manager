@@ -39,12 +39,45 @@ export function browseModuleStatus(
   rows: readonly DependencyRow[],
   moduleFilter: string,
 ): BrowseModuleStatus {
-  const installedIn = rows.filter(
-    (row) =>
-      row.name === modulePath &&
-      (moduleFilter === 'all' || row.project === moduleFilter),
+  return statusFromRows(
+    rows.filter(
+      (row) =>
+        row.name === modulePath &&
+        (moduleFilter === 'all' || row.project === moduleFilter),
+    ),
   );
+}
 
+/**
+ * Status for every searched module in one pass. Browse pages can hold hundreds
+ * of rows, so filtering the dependency list once beats filtering it per row.
+ */
+export function browseModuleStatusIndex(
+  modulePaths: readonly string[],
+  rows: readonly DependencyRow[],
+  moduleFilter: string,
+): ReadonlyMap<string, BrowseModuleStatus> {
+  const byName = new Map<string, DependencyRow[]>();
+  for (const row of rows) {
+    if (moduleFilter !== 'all' && row.project !== moduleFilter) {
+      continue;
+    }
+    const entries = byName.get(row.name);
+    if (entries === undefined) {
+      byName.set(row.name, [row]);
+    } else {
+      entries.push(row);
+    }
+  }
+
+  const index = new Map<string, BrowseModuleStatus>();
+  for (const modulePath of modulePaths) {
+    index.set(modulePath, statusFromRows(byName.get(modulePath) ?? []));
+  }
+  return index;
+}
+
+function statusFromRows(installedIn: readonly DependencyRow[]): BrowseModuleStatus {
   if (installedIn.length === 0) {
     return { installedIn };
   }

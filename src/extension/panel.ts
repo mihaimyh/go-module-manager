@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ModuleMetadata, PreviewResult, SearchResponse } from '../core/adapter';
+import type { PanelFocus } from '../core/contextMenu';
 import type { HostToWebview, ReleaseNotes, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import type { PanelHandlers } from './handlers';
@@ -12,6 +13,8 @@ export class GmmPanel {
 
   private readonly disposables: vscode.Disposable[] = [];
   private progress: ResolveProgress | undefined;
+  private pendingFocus: PanelFocus | undefined;
+  private ready = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -25,7 +28,10 @@ export class GmmPanel {
         handleWebviewMessage(raw, {
           getModel: () => this.model,
           handlers: this.handlers,
-          postModel: () => this.post(),
+          postModel: () => {
+            this.ready = true;
+            this.post();
+          },
         });
       },
       undefined,
@@ -73,15 +79,24 @@ export class GmmPanel {
 
   static update(model: PanelModel, progress?: ResolveProgress): void {
     const current = GmmPanel.current;
-    if (current) {
-      current.model = model;
-      current.progress = progress;
+    if (!current) {
+      return;
     }
-    GmmPanel.send({
-      type: 'model',
-      model,
-      ...(progress === undefined ? {} : { progress }),
-    });
+    current.model = model;
+    current.progress = progress;
+    current.post();
+  }
+
+  static postFocus(focus: PanelFocus): void {
+    const current = GmmPanel.current;
+    if (!current) {
+      return;
+    }
+    current.pendingFocus = focus;
+    if (current.ready && current.model !== undefined) {
+      current.pendingFocus = undefined;
+      GmmPanel.send({ type: 'focus', ...focus });
+    }
   }
 
   static clearSelection(): void {
@@ -175,7 +190,7 @@ export class GmmPanel {
   }
 
   private post(): void {
-    if (this.model === undefined) {
+    if (!this.ready || this.model === undefined) {
       return;
     }
     GmmPanel.send({
@@ -183,6 +198,11 @@ export class GmmPanel {
       model: this.model,
       ...(this.progress === undefined ? {} : { progress: this.progress }),
     });
+    if (this.pendingFocus !== undefined) {
+      const focus = this.pendingFocus;
+      this.pendingFocus = undefined;
+      GmmPanel.send({ type: 'focus', ...focus });
+    }
   }
 
   private dispose(): void {

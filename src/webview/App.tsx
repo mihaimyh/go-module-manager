@@ -1,15 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import type { ModuleMetadata, PreviewResult, SearchResult } from '../core/adapter';
 import { advisoryFixOffer, affectedRangeText } from '../core/advisoryAction';
 import {
   browseModuleStatus,
+  browseModuleStatusIndex,
   defaultCheckedManifests,
   initialTabFromHash,
   planInspectorTargets,
+  type BrowseModuleStatus,
   type Tab,
 } from '../core/browse';
 import type { TargetChange } from '../core/bulk';
 import { groupedDivergence } from '../core/consolidate';
+import {
+  buildAdvisoryCardMenu,
+  buildBrowseRowMenu,
+  buildConsolidateGroupMenu,
+  buildConsolidateRowMenu,
+  buildDependencyRowMenu,
+  buildFailureBannerMenu,
+  buildProjectChecklistRowMenu,
+  clampMenuPosition,
+  pkgUrl,
+  repositoryUrl,
+  repositoryUrlFor,
+  resolvePanelFocus,
+  type ContextMenuAction,
+  type ContextMenuSection,
+} from '../core/contextMenu';
 import type {
   DependencySelection,
   RecoveryAction,
@@ -35,6 +62,7 @@ import {
   type UpdateKind,
 } from '../core/version';
 import { Dropdown } from './Dropdown';
+import type { SearchState } from './searchState';
 import {
   ArrowRightIcon,
   ExternalLinkIcon,
@@ -67,34 +95,55 @@ const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly 
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+interface OpenMenuState {
+  readonly x: number;
+  readonly y: number;
+  readonly sections: readonly ContextMenuSection[];
+  readonly focusFirst?: boolean;
+  readonly onLocalAction?: (action: ContextMenuAction) => boolean;
+}
+
+type OpenMenuFn = (
+  anchor: { readonly x: number; readonly y: number },
+  sections: readonly ContextMenuSection[],
+  options?: {
+    readonly focusFirst?: boolean;
+    readonly onLocalAction?: (action: ContextMenuAction) => boolean;
+  },
+) => void;
+
 interface AppProps {
   readonly model: PanelModel | undefined;
   readonly progress?: ResolveProgress;
   readonly busy?: string;
   readonly versionsLoading: Readonly<Record<string, boolean>>;
   readonly clearSignal?: number;
+  readonly focus?: {
+    readonly id: number;
+    readonly manifestPath?: string;
+    readonly moduleName?: string;
+  };
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
   readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
   readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
+  readonly onUninstall: (targets: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;
   readonly onInstallScanner: () => void;
   readonly versions: Readonly<Record<string, readonly string[]>>;
   readonly onVersions: (modulePath: string) => void;
   readonly onOpenPanel: () => void;
-  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onShowOutput: () => void;
+  readonly onOpenManifest: (manifestPath: string, name?: string) => void;
   readonly why: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
   readonly onWhy: (manifestPath: string, name: string) => void;
   readonly releaseNotes: Readonly<Record<string, ReleaseNotes | null>>;
   readonly onReleaseNotes: (modulePath: string, version: string) => void;
   readonly preview?: PreviewResult;
   readonly onPreview: (manifestPath: string, name: string, version: string) => void;
-  readonly searchItems: readonly SearchResult[];
-  readonly searchLoading: boolean;
-  readonly searchNextPageToken?: string;
-  readonly searchError?: string;
+  readonly search: SearchState;
   readonly onSearch: (query: string, pageToken?: string) => void;
   readonly moduleMetadata: Readonly<Record<string, ModuleMetadata | null>>;
   readonly onModuleMetadata: (modulePath: string, version?: string) => void;
@@ -106,17 +155,20 @@ export function App({
   busy,
   versionsLoading,
   clearSignal,
+  focus,
   onRefresh,
   onRecover,
   onUpdate,
   onApplyTargets,
   onBulkUpdate,
+  onUninstall,
   onTidy,
   onScan,
   onInstallScanner,
   versions,
   onVersions,
   onOpenPanel,
+  onShowOutput,
   onOpenManifest,
   why,
   onWhy,
@@ -124,14 +176,21 @@ export function App({
   onReleaseNotes,
   preview,
   onPreview,
-  searchItems,
-  searchLoading,
-  searchNextPageToken,
-  searchError,
+  search,
   onSearch,
   moduleMetadata,
   onModuleMetadata,
 }: AppProps): JSX.Element {
+  const {
+    items: searchItems,
+    nextPageToken: searchNextPageToken,
+    loadingFresh: searchLoadingFresh,
+    loadingAppend: searchLoadingAppend,
+    error: searchError,
+    appendError: searchAppendError,
+    settledQuery: searchSettledQuery,
+    generation: searchGeneration,
+  } = search;
   const [tab, setTab] = useState<Tab>(() => initialTabFromHash(window.location.hash));
   const [query, setQuery] = useState('');
   const [browseQuery, setBrowseQuery] = useState('');
@@ -143,7 +202,10 @@ export function App({
   const [selectedBrowseName, setSelectedBrowseName] = useState<string>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const [compact, setCompact] = useState(() => window.innerWidth < 720);
+  const [openMenuState, setOpenMenuState] = useState<OpenMenuState>();
   const initialSearchFired = useRef(false);
+  const searchTimer = useRef<number | undefined>(undefined);
+  const lastFocusId = useRef<number>(0);
 
   useEffect(() => {
     const onResize = (): void => setCompact(window.innerWidth < 720);
@@ -157,21 +219,126 @@ export function App({
     }
   }, [clearSignal]);
 
+  useEffect(() => {
+    if (!model || !focus || focus.id === lastFocusId.current) {
+      return;
+    }
+    lastFocusId.current = focus.id;
+    const resolved = resolvePanelFocus(model, focus);
+    if (!resolved) {
+      return;
+    }
+    setModuleFilter(resolved.moduleFilter);
+    if (resolved.tab !== undefined) {
+      setTab(resolved.tab);
+    }
+    if (resolved.selectedId !== undefined) {
+      setSelectedId(resolved.selectedId);
+    }
+    if (resolved.revealIndirect === true) {
+      setDirectOnly(false);
+    }
+  }, [model, focus]);
+
+  const openMenu: OpenMenuFn = (anchor, sections, options) => {
+    if (sections.every((section) => section.items.length === 0)) {
+      return;
+    }
+    setOpenMenuState({
+      x: anchor.x,
+      y: anchor.y,
+      sections,
+      ...(options?.focusFirst === undefined ? {} : { focusFirst: options.focusFirst }),
+      ...(options?.onLocalAction === undefined
+        ? {}
+        : { onLocalAction: options.onLocalAction }),
+    });
+  };
+
+  const closeMenu = (): void => {
+    setOpenMenuState(undefined);
+  };
+
+  const executeMenuAction = (
+    action: ContextMenuAction,
+    onLocalAction?: (candidate: ContextMenuAction) => boolean,
+  ): void => {
+    closeMenu();
+    if (onLocalAction?.(action) === true) {
+      return;
+    }
+    switch (action.type) {
+      case 'update':
+        onUpdate(action.manifestPath, action.name, action.version);
+        return;
+      case 'apply-targets':
+        onApplyTargets(action.targets);
+        return;
+      case 'bulk-update':
+        onBulkUpdate(action.selection);
+        return;
+      case 'clear-selection':
+        setChecked(new Set());
+        return;
+      case 'uninstall':
+        onUninstall(action.targets);
+        return;
+      case 'open-manifest':
+        onOpenManifest(action.manifestPath, action.name);
+        return;
+      case 'tidy':
+        onTidy(action.manifests);
+        return;
+      case 'recover':
+        onRecover(action.manifestPath, action.action);
+        return;
+      case 'show-output':
+        onShowOutput();
+        return;
+      case 'copy':
+        void copyPath(action.text);
+        return;
+      case 'open-external':
+      case 'target-only-project':
+      case 'target-all-projects':
+        return;
+    }
+  };
+
   // Populate Browse on first workspace load and debounce subsequent Browse queries.
   useEffect(() => {
     if (!model) {
-      return;
+      return undefined;
     }
     if (!initialSearchFired.current) {
       initialSearchFired.current = true;
       onSearch(browseQuery);
-      return;
+      return undefined;
     }
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      searchTimer.current = undefined;
       onSearch(browseQuery);
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    searchTimer.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (searchTimer.current === timer) {
+        searchTimer.current = undefined;
+      }
+    };
   }, [Boolean(model), browseQuery]);
+
+  /** Enter skips the debounce, and must cancel it so one keystroke cannot start two searches. */
+  const fireSearch = (value: string, pageToken?: string): void => {
+    if (searchTimer.current !== undefined) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = undefined;
+    }
+    onSearch(value, pageToken);
+  };
+
+  const searchPending = tab === 'browse' && browseQuery.trim() !== searchSettledQuery;
+  const searchBusy = searchPending || (tab === 'browse' && searchLoadingFresh);
 
   const rows = useMemo(
     () => withPrereleaseFilter(model?.rows ?? [], includePrereleases),
@@ -339,7 +506,17 @@ export function App({
   };
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      onContextMenu={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement && target.closest('input, textarea, code, pre')) {
+          return;
+        }
+        event.preventDefault();
+        closeMenu();
+      }}
+    >
       <header className="toolbar">
         <div className="toolbar-left">
           <span className="title">
@@ -354,23 +531,32 @@ export function App({
                 : `${visible.length} of ${tabRows.length}`}
           </span>
           <span className="divider" aria-hidden="true" />
-          <div className="search">
+          <div className={searchBusy ? 'search busy' : 'search'}>
             <span className="search-icon" aria-hidden="true">
               <SearchIcon />
             </span>
             {tab === 'browse' ? (
-              <input
-                type="search"
-                placeholder="Search Go modules…"
-                aria-label="Search Go modules"
-                value={browseQuery}
-                onChange={(event) => setBrowseQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    onSearch(browseQuery);
-                  }
-                }}
-              />
+              <>
+                <input
+                  type="search"
+                  placeholder="Search Go modules…"
+                  aria-label="Search Go modules"
+                  value={browseQuery}
+                  onChange={(event) => setBrowseQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      fireSearch(browseQuery);
+                    }
+                  }}
+                />
+                {searchBusy ? (
+                  <span
+                    className="spinner search-spinner"
+                    role="status"
+                    aria-label="Searching Go modules"
+                  />
+                ) : null}
+              </>
             ) : (
               <input
                 type="search"
@@ -532,8 +718,45 @@ export function App({
             if (failure === undefined) {
               return null;
             }
+            const recovery = RECOVERY[failure.kind];
+            const openFailureMenu = (
+              anchor: { readonly x: number; readonly y: number },
+              focusFirst?: boolean,
+            ): void => {
+              openMenu(
+                anchor,
+                buildFailureBannerMenu({
+                  project,
+                  failure,
+                  recoveryAction: recovery.action,
+                  recoveryLabel: recovery.label,
+                  locked,
+                }),
+                { focusFirst },
+              );
+            };
             return (
-              <div className="failure" role="alert" key={project.manifestPath}>
+              <div
+                className="failure"
+                role="alert"
+                key={project.manifestPath}
+                tabIndex={0}
+                onContextMenu={(event) => {
+                  if (shouldKeepNativeContextMenu(event.target)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openFailureMenu({ x: event.clientX, y: event.clientY });
+                }}
+                onKeyDown={(event) => {
+                  if (isContextMenuKey(event)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openFailureMenu(elementAnchor(event.currentTarget), true);
+                  }
+                }}
+              >
                 <WarningIcon size={16} />
                 <div className="failure-text">
                   <strong>{project.name}</strong>
@@ -543,12 +766,14 @@ export function App({
                   type="button"
                   className="button secondary"
                   disabled={locked}
-                  onClick={() =>
-                    onRecover(project.manifestPath, RECOVERY[failure.kind].action)
-                  }
+                  onClick={() => onRecover(project.manifestPath, recovery.action)}
                 >
-                  {RECOVERY[failure.kind].label}
+                  {recovery.label}
                 </button>
+                <MoreButton
+                  label={`Actions for ${project.name}`}
+                  onOpen={openFailureMenu}
+                />
               </div>
             );
           })}
@@ -563,13 +788,34 @@ export function App({
               rows={rows}
               moduleFilter={moduleFilter}
               selectedName={activeBrowseItem?.name}
-              loading={searchLoading}
+              loadingFresh={searchLoadingFresh}
+              loadingAppend={searchLoadingAppend}
+              queryPending={searchPending}
               nextPageToken={searchNextPageToken}
               error={searchError}
+              appendError={searchAppendError}
               query={browseQuery}
+              generation={searchGeneration}
               onSelect={setSelectedBrowseName}
-              onLoadMore={() => onSearch(browseQuery, searchNextPageToken)}
-              onRetry={() => onSearch(browseQuery)}
+              onOpenRowMenu={(item, anchor, focusFirst) => {
+                openMenu(
+                  anchor,
+                  buildBrowseRowMenu({
+                    item,
+                    projects,
+                    rows,
+                    moduleFilter,
+                    locked,
+                  }),
+                  { focusFirst },
+                );
+              }}
+              onLoadMore={() => {
+                if (!searchPending) {
+                  onSearch(browseQuery, searchNextPageToken);
+                }
+              }}
+              onRetry={() => fireSearch(browseQuery)}
             />
           ) : (
             <>
@@ -608,7 +854,9 @@ export function App({
                   <ConsolidateGroups
                     groups={groupedDivergence(visible)}
                     activeId={activeId}
+                    locked={locked}
                     onSelect={setSelectedId}
+                    onOpenMenu={openMenu}
                   />
                 )
               ) : (
@@ -674,6 +922,21 @@ export function App({
                         unresolved={failedManifests.has(row.manifestPath)}
                         onSelect={() => setSelectedId(row.id)}
                         onToggle={() => toggle(row.id)}
+                        onOpenMenu={(anchor, focusFirst) => {
+                          openMenu(
+                            anchor,
+                            buildDependencyRowMenu({
+                              row,
+                              checkedIds: checked,
+                              updatableSelection: updatable.map((entry) => ({
+                                manifestPath: entry.manifestPath,
+                                name: entry.name,
+                              })),
+                              locked,
+                            }),
+                            { focusFirst },
+                          );
+                        }}
                       />
                     ))}
                   </tbody>
@@ -717,6 +980,7 @@ export function App({
                 onPreview={onPreview}
                 onApplyTargets={onApplyTargets}
                 onOpenManifest={onOpenManifest}
+                onOpenMenu={openMenu}
                 onRevealIndirectInInstalled={() => {
                   setDirectOnly(false);
                   setTab('dependencies');
@@ -740,6 +1004,7 @@ export function App({
               onUpdate={onUpdate}
               onApplyTargets={onApplyTargets}
               onOpenManifest={onOpenManifest}
+              onOpenMenu={openMenu}
               why={why[`${selected.manifestPath}#${selected.name}`]}
               onWhy={onWhy}
               releaseNotes={releaseNotes}
@@ -752,6 +1017,13 @@ export function App({
           )}
         </aside>
       </main>
+      {openMenuState === undefined ? null : (
+        <ContextMenu
+          menu={openMenuState}
+          onClose={closeMenu}
+          onAction={(action) => executeMenuAction(action, openMenuState.onLocalAction)}
+        />
+      )}
     </div>
   );
 }
@@ -761,11 +1033,16 @@ function BrowseList({
   rows,
   moduleFilter,
   selectedName,
-  loading,
+  loadingFresh,
+  loadingAppend,
+  queryPending,
   nextPageToken,
   error,
+  appendError,
   query,
+  generation,
   onSelect,
+  onOpenRowMenu,
   onLoadMore,
   onRetry,
 }: {
@@ -773,18 +1050,98 @@ function BrowseList({
   readonly rows: readonly DependencyRow[];
   readonly moduleFilter: string;
   readonly selectedName?: string;
-  readonly loading: boolean;
+  readonly loadingFresh: boolean;
+  readonly loadingAppend: boolean;
+  readonly queryPending: boolean;
   readonly nextPageToken?: string;
   readonly error?: string;
+  readonly appendError?: string;
   readonly query: string;
+  readonly generation: number;
   readonly onSelect: (name: string) => void;
+  readonly onOpenRowMenu: (
+    item: SearchResult,
+    anchor: { readonly x: number; readonly y: number },
+    focusFirst?: boolean,
+  ) => void;
   readonly onLoadMore: () => void;
   readonly onRetry: () => void;
 }): JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef(onLoadMore);
+  loadMoreRef.current = onLoadMore;
+  const openRowMenuRef = useRef(onOpenRowMenu);
+  openRowMenuRef.current = onOpenRowMenu;
+  const handleOpenRowMenu = useCallback(
+    (
+      item: SearchResult,
+      anchor: { readonly x: number; readonly y: number },
+      focusFirst?: boolean,
+    ): void => {
+      openRowMenuRef.current(item, anchor, focusFirst);
+    },
+    [],
+  );
+
+  // One lookup for the whole page: filtering every dependency per row would
+  // grow quadratically as pages accumulate.
+  const statusIndex = useMemo(
+    () =>
+      browseModuleStatusIndex(
+        items.map((item) => item.name),
+        rows,
+        moduleFilter,
+      ),
+    [items, rows, moduleFilter],
+  );
+
+  // A fresh query may leave the list scrolled past the shorter result set.
+  useEffect(() => {
+    const scroller = containerRef.current?.closest('.list');
+    if (scroller instanceof HTMLElement) {
+      scroller.scrollTop = 0;
+    }
+  }, [generation]);
+
+  const canLoadMore =
+    nextPageToken !== undefined &&
+    items.length > 0 &&
+    !queryPending &&
+    !loadingFresh &&
+    !loadingAppend &&
+    appendError === undefined;
+
+  // Load the next page just before the end of the list. The host ignores a
+  // duplicate token, so a fast observer cannot request the same page twice.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!canLoadMore || sentinel === null) {
+      return undefined;
+    }
+    const root = sentinel.closest('.list');
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMoreRef.current();
+        }
+      },
+      { root, rootMargin: '0px 0px 240px 0px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // items.length re-arms the observer after a page is appended, so a page
+    // shorter than the viewport keeps loading until the list fills.
+  }, [canLoadMore, items.length]);
+
   return (
-    <div className="browse-container">
+    <div className="browse-container" ref={containerRef} aria-busy={loadingFresh}>
+      {loadingFresh && items.length > 0 ? (
+        <div className="browse-progress" aria-hidden="true" />
+      ) : null}
+
       {items.length > 0 ? (
-        <table className="browse-table">
+        <table className={loadingFresh ? 'browse-table stale' : 'browse-table'}>
           <thead>
             <tr>
               <th scope="col">Module</th>
@@ -803,113 +1160,36 @@ function BrowseList({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
-              const status = browseModuleStatus(item.name, rows, moduleFilter);
-              const isSelected = item.name === selectedName;
-              const importPath = item.matchedPackage ?? item.name;
-              const subpkg =
-                item.matchedPackage !== undefined && item.matchedPackage !== item.name
-                  ? item.matchedPackage.startsWith(`${item.name}/`)
-                    ? item.matchedPackage.slice(item.name.length)
-                    : item.matchedPackage
-                  : undefined;
-
-              return (
-                <tr
-                  key={item.name}
-                  className={`browse-row${isSelected ? ' selected' : ''}`}
-                  onClick={() => onSelect(item.name)}
-                >
-                  <th scope="row" className="col-module">
-                    <div className="browse-cell">
-                      <div className="module-cell">
-                        <span className="mono path" title={item.name}>
-                          {item.name}
-                        </span>
-                        {subpkg === undefined ? null : (
-                          <span className="chip" title={`Matched package ${item.matchedPackage}`}>
-                            via {subpkg}
-                          </span>
-                        )}
-                        {item.private === true ? <span className="chip">private</span> : null}
-                      </div>
-                      {item.summary === '' ? null : (
-                        <p className="browse-synopsis muted" title={item.summary}>
-                          {item.summary}
-                        </p>
-                      )}
-                    </div>
-                  </th>
-                  <td className="col-status">
-                    {status.badge === undefined ? (
-                      <span className="muted mono">—</span>
-                    ) : (
-                      <span className={status.badge.indirect ? 'chip' : 'chip installed'}>
-                        {status.badge.label}
-                      </span>
-                    )}
-                  </td>
-                  <td className="col-version mono candidate" title={item.version}>
-                    {item.version}
-                  </td>
-                  <td className="col-imported mono muted">
-                    {item.importedBy === undefined ? '—' : item.importedBy.toLocaleString()}
-                  </td>
-                  <td className="col-actions" onClick={(event) => event.stopPropagation()}>
-                    <details className="row-menu">
-                      <summary title="Module actions" aria-label={`Actions for ${item.name}`}>
-                        <MoreIcon />
-                      </summary>
-                      <div className="menu" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={(event) => {
-                            void copyPath(item.name);
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                          }}
-                        >
-                          Copy module path
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={(event) => {
-                            void copyPath(`import "${importPath}"`);
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                          }}
-                        >
-                          Copy import statement
-                        </button>
-                        {item.private === true ? null : (
-                          <a
-                            role="menuitem"
-                            href={`https://pkg.go.dev/${item.name}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Open on pkg.go.dev
-                          </a>
-                        )}
-                      </div>
-                    </details>
-                  </td>
-                </tr>
-              );
-            })}
+            {items.map((item) => (
+              <BrowseRow
+                key={item.name}
+                item={item}
+                status={statusIndex.get(item.name) ?? EMPTY_BROWSE_STATUS}
+                selected={item.name === selectedName}
+                onSelect={onSelect}
+                onOpenMenu={handleOpenRowMenu}
+              />
+            ))}
           </tbody>
         </table>
       ) : null}
 
-      {loading ? (
+      {loadingFresh && items.length === 0 ? (
         <div className="browse-footer" role="status" aria-live="polite">
           <span className="spinner" aria-hidden="true" />
           <span className="muted">Searching Go modules…</span>
         </div>
       ) : null}
 
-      {!loading && error !== undefined ? (
-        <div className="empty empty-action">
+      {loadingAppend ? (
+        <div className="browse-footer" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span className="muted">Loading more modules…</span>
+        </div>
+      ) : null}
+
+      {!loadingFresh && error !== undefined ? (
+        <div className="empty empty-action" role="alert">
           <p>Could not search modules: {error}</p>
           <button type="button" className="button secondary compact" onClick={onRetry}>
             Retry
@@ -917,7 +1197,7 @@ function BrowseList({
         </div>
       ) : null}
 
-      {!loading && error === undefined && items.length === 0 ? (
+      {!loadingFresh && error === undefined && items.length === 0 ? (
         <div className="empty">
           {query.trim() === ''
             ? 'Type a module path or keyword to search Go modules.'
@@ -925,16 +1205,129 @@ function BrowseList({
         </div>
       ) : null}
 
-      {!loading && nextPageToken !== undefined && items.length > 0 ? (
+      {appendError !== undefined ? (
+        <div className="browse-footer browse-footer-error" role="alert">
+          <span className="muted">Could not load more: {appendError}</span>
+          <button type="button" className="button secondary compact" onClick={onLoadMore}>
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {canLoadMore ? (
         <div className="browse-footer">
           <button type="button" className="button secondary compact" onClick={onLoadMore}>
             Load more
           </button>
         </div>
       ) : null}
+
+      <div ref={sentinelRef} className="browse-sentinel" aria-hidden="true" />
     </div>
   );
 }
+
+const EMPTY_BROWSE_STATUS: BrowseModuleStatus = { installedIn: [] };
+
+const BrowseRow = memo(function BrowseRow({
+  item,
+  status,
+  selected,
+  onSelect,
+  onOpenMenu,
+}: {
+  readonly item: SearchResult;
+  readonly status: BrowseModuleStatus;
+  readonly selected: boolean;
+  readonly onSelect: (name: string) => void;
+  readonly onOpenMenu: (
+    item: SearchResult,
+    anchor: { readonly x: number; readonly y: number },
+    focusFirst?: boolean,
+  ) => void;
+}): JSX.Element {
+  const subpkg =
+    item.matchedPackage !== undefined && item.matchedPackage !== item.name
+      ? item.matchedPackage.startsWith(`${item.name}/`)
+        ? item.matchedPackage.slice(item.name.length)
+        : item.matchedPackage
+      : undefined;
+
+  return (
+    <tr
+      className={`browse-row${selected ? ' selected' : ''}`}
+      tabIndex={0}
+      onClick={() => onSelect(item.name)}
+      onContextMenu={(event) => {
+        if (shouldKeepNativeContextMenu(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect(item.name);
+        onOpenMenu(item, { x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (isContextMenuKey(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect(item.name);
+          onOpenMenu(item, elementAnchor(event.currentTarget), true);
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          if (event.target === event.currentTarget) {
+            event.preventDefault();
+            onSelect(item.name);
+          }
+        }
+      }}
+    >
+      <th scope="row" className="col-module">
+        <div className="browse-cell">
+          <div className="module-cell">
+            <span className="mono path" title={item.name}>
+              {item.name}
+            </span>
+            {subpkg === undefined ? null : (
+              <span className="chip" title={`Matched package ${item.matchedPackage}`}>
+                via {subpkg}
+              </span>
+            )}
+            {item.private === true ? <span className="chip">private</span> : null}
+          </div>
+          {item.summary === '' ? null : (
+            <p className="browse-synopsis muted" title={item.summary}>
+              {item.summary}
+            </p>
+          )}
+        </div>
+      </th>
+      <td className="col-status">
+        {status.badge === undefined ? (
+          <span className="muted mono">—</span>
+        ) : (
+          <span className={status.badge.indirect ? 'chip' : 'chip installed'}>
+            {status.badge.label}
+          </span>
+        )}
+      </td>
+      <td className="col-version mono candidate" title={item.version}>
+        {item.version}
+      </td>
+      <td className="col-imported mono muted">
+        {item.importedBy === undefined ? '—' : item.importedBy.toLocaleString()}
+      </td>
+      <td className="col-actions" onClick={(event) => event.stopPropagation()}>
+        <MoreButton
+          label={`Actions for ${item.name}`}
+          onOpen={(anchor, focusFirst) => {
+            onSelect(item.name);
+            onOpenMenu(item, anchor, focusFirst);
+          }}
+        />
+      </td>
+    </tr>
+  );
+});
 
 function BrowseInspector({
   item,
@@ -957,6 +1350,7 @@ function BrowseInspector({
   onPreview,
   onApplyTargets,
   onOpenManifest,
+  onOpenMenu,
   onRevealIndirectInInstalled,
 }: {
   readonly item: SearchResult;
@@ -978,7 +1372,8 @@ function BrowseInspector({
   readonly onWhy: (manifestPath: string, name: string) => void;
   readonly onPreview: (manifestPath: string, name: string, version: string) => void;
   readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
-  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onOpenManifest: (manifestPath: string, name?: string) => void;
+  readonly onOpenMenu: OpenMenuFn;
   readonly onRevealIndirectInInstalled: () => void;
 }): JSX.Element {
   const status = useMemo(
@@ -1149,7 +1544,12 @@ function BrowseInspector({
           checkedManifests={checkedManifests}
           disabled={busy}
           onToggle={toggleProject}
+          onSelectOnlyProject={(manifestPath) => setCheckedManifests(new Set([manifestPath]))}
+          onSelectAllProjects={() =>
+            setCheckedManifests(new Set(projects.map((project) => project.manifestPath)))
+          }
           onOpenManifest={onOpenManifest}
+          onOpenMenu={onOpenMenu}
         />
       ) : null}
 
@@ -1366,7 +1766,10 @@ function ProjectChecklist({
   checkedManifests,
   disabled,
   onToggle,
+  onSelectOnlyProject,
+  onSelectAllProjects,
   onOpenManifest,
+  onOpenMenu,
 }: {
   readonly projects: readonly ProjectSummary[];
   readonly rows: readonly DependencyRow[];
@@ -1374,7 +1777,10 @@ function ProjectChecklist({
   readonly checkedManifests: ReadonlySet<string>;
   readonly disabled: boolean;
   readonly onToggle: (manifestPath: string) => void;
-  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onSelectOnlyProject: (manifestPath: string) => void;
+  readonly onSelectAllProjects: () => void;
+  readonly onOpenManifest: (manifestPath: string, name?: string) => void;
+  readonly onOpenMenu: OpenMenuFn;
 }): JSX.Element {
   return (
     <div className="project-checklist">
@@ -1388,6 +1794,9 @@ function ProjectChecklist({
             <th scope="col" className="col-version">
               Installed
             </th>
+            <th scope="col" className="col-actions">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -1397,12 +1806,63 @@ function ProjectChecklist({
             );
             const checked = checkedManifests.has(project.manifestPath);
             const version = existing?.resolvedVersion ?? existing?.declaredVersion;
+            const openProjectMenu = (
+              anchor: { readonly x: number; readonly y: number },
+              focusFirst?: boolean,
+            ): void => {
+              onOpenMenu(
+                anchor,
+                buildProjectChecklistRowMenu({
+                  project,
+                  moduleName,
+                  installedRow: existing,
+                  locked: disabled,
+                }),
+                {
+                  focusFirst,
+                  onLocalAction: (action) => {
+                    if (action.type === 'target-only-project') {
+                      onSelectOnlyProject(action.manifestPath);
+                      return true;
+                    }
+                    if (action.type === 'target-all-projects') {
+                      onSelectAllProjects();
+                      return true;
+                    }
+                    return false;
+                  },
+                },
+              );
+            };
             return (
               <tr
                 key={project.manifestPath}
                 className={checked ? 'selected' : undefined}
+                tabIndex={0}
                 onClick={() => {
                   if (!disabled) {
+                    onToggle(project.manifestPath);
+                  }
+                }}
+                onContextMenu={(event) => {
+                  if (shouldKeepNativeContextMenu(event.target)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openProjectMenu({ x: event.clientX, y: event.clientY });
+                }}
+                onKeyDown={(event) => {
+                  if (isContextMenuKey(event)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openProjectMenu(elementAnchor(event.currentTarget), true);
+                  } else if (
+                    (event.key === 'Enter' || event.key === ' ') &&
+                    event.target === event.currentTarget &&
+                    !disabled
+                  ) {
+                    event.preventDefault();
                     onToggle(project.manifestPath);
                   }
                 }}
@@ -1434,6 +1894,12 @@ function ProjectChecklist({
                       {existing?.transitive ? ' (indirect)' : ''}
                     </button>
                   )}
+                </td>
+                <td className="col-actions" onClick={(event) => event.stopPropagation()}>
+                  <MoreButton
+                    label={`Actions for ${project.name}`}
+                    onOpen={openProjectMenu}
+                  />
                 </td>
               </tr>
             );
@@ -1507,6 +1973,7 @@ function Row({
   unresolved,
   onSelect,
   onToggle,
+  onOpenMenu,
 }: {
   readonly row: DependencyRow;
   readonly selected: boolean;
@@ -1514,9 +1981,40 @@ function Row({
   readonly unresolved: boolean;
   readonly onSelect: () => void;
   readonly onToggle: () => void;
+  readonly onOpenMenu: (
+    anchor: { readonly x: number; readonly y: number },
+    focusFirst?: boolean,
+  ) => void;
 }): JSX.Element {
   return (
-    <tr className={selected ? 'selected' : undefined} onClick={onSelect}>
+    <tr
+      className={selected ? 'selected' : undefined}
+      tabIndex={0}
+      onClick={onSelect}
+      onContextMenu={(event) => {
+        if (shouldKeepNativeContextMenu(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect();
+        onOpenMenu({ x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (isContextMenuKey(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect();
+          onOpenMenu(elementAnchor(event.currentTarget), true);
+        } else if (
+          (event.key === 'Enter' || event.key === ' ') &&
+          event.target === event.currentTarget
+        ) {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <td className="col-check">
         <input
           type="checkbox"
@@ -1595,33 +2093,13 @@ function Row({
         )}
       </td>
       <td className="col-actions" onClick={(event) => event.stopPropagation()}>
-        <details className="row-menu">
-          <summary title="Module actions" aria-label={`Actions for ${row.name}`}>
-            <MoreIcon />
-          </summary>
-          <div className="menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={(event) => {
-                void copyPath(row.name);
-                event.currentTarget.closest('details')?.removeAttribute('open');
-              }}
-            >
-              Copy module path
-            </button>
-            {pkgUrl(row) === undefined ? null : (
-              <a
-                role="menuitem"
-                href={pkgUrl(row)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open on pkg.go.dev
-              </a>
-            )}
-          </div>
-        </details>
+        <MoreButton
+          label={`Actions for ${row.name}`}
+          onOpen={(anchor, focusFirst) => {
+            onSelect();
+            onOpenMenu(anchor, focusFirst);
+          }}
+        />
       </td>
     </tr>
   );
@@ -1651,36 +2129,122 @@ function UpdateCell({
 function ConsolidateGroups({
   groups,
   activeId,
+  locked,
   onSelect,
+  onOpenMenu,
 }: {
   readonly groups: readonly { readonly name: string; readonly rows: readonly DependencyRow[] }[];
   readonly activeId: string | undefined;
+  readonly locked: boolean;
   readonly onSelect: (id: string) => void;
+  readonly onOpenMenu: OpenMenuFn;
 }): JSX.Element {
   return (
     <div className="consolidate">
-      {groups.map((group) => (
-        <section key={group.name} className="consolidate-group">
-          <h3 className="mono">{group.name}</h3>
-          <ul>
-            {group.rows.map((row) => (
-              <li key={row.id}>
-                <button
-                  type="button"
-                  className={row.id === activeId ? 'consolidate-row selected' : 'consolidate-row'}
-                  onClick={() => onSelect(row.id)}
-                >
-                  <span className="mono">{row.project}</span>
-                  <span className="mono candidate">{row.resolvedVersion}</span>
-                  {row.declaredVersion === row.resolvedVersion ? null : (
-                    <span className="muted">required {row.declaredVersion}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+      {groups.map((group) => {
+        const openGroupMenu = (
+          anchor: { readonly x: number; readonly y: number },
+          focusFirst?: boolean,
+        ): void => {
+          onOpenMenu(
+            anchor,
+            buildConsolidateGroupMenu({
+              group,
+              locked,
+            }),
+            { focusFirst },
+          );
+        };
+        return (
+          <section key={group.name} className="consolidate-group">
+            <div
+              className="consolidate-head"
+              tabIndex={0}
+              onContextMenu={(event) => {
+                if (shouldKeepNativeContextMenu(event.target)) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                openGroupMenu({ x: event.clientX, y: event.clientY });
+              }}
+              onKeyDown={(event) => {
+                if (isContextMenuKey(event)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openGroupMenu(elementAnchor(event.currentTarget), true);
+                }
+              }}
+            >
+              <h3 className="mono">{group.name}</h3>
+              <MoreButton
+                label={`Actions for ${group.name}`}
+                onOpen={openGroupMenu}
+              />
+            </div>
+            <ul>
+              {group.rows.map((row) => {
+                const openRowMenu = (
+                  anchor: { readonly x: number; readonly y: number },
+                  focusFirst?: boolean,
+                ): void => {
+                  onSelect(row.id);
+                  onOpenMenu(
+                    anchor,
+                    buildConsolidateRowMenu({
+                      row,
+                      groupRows: group.rows,
+                      locked,
+                    }),
+                    { focusFirst },
+                  );
+                };
+                return (
+                  <li key={row.id}>
+                    <div
+                      className={
+                        row.id === activeId ? 'consolidate-row selected' : 'consolidate-row'
+                      }
+                      onClick={() => onSelect(row.id)}
+                      onContextMenu={(event) => {
+                        if (shouldKeepNativeContextMenu(event.target)) {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openRowMenu({ x: event.clientX, y: event.clientY });
+                      }}
+                      onKeyDown={(event) => {
+                        if (isContextMenuKey(event)) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openRowMenu(elementAnchor(event.currentTarget), true);
+                        }
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="consolidate-row-main"
+                        onClick={() => onSelect(row.id)}
+                      >
+                        <span className="mono">{row.project}</span>
+                        <span className="mono candidate">{row.resolvedVersion}</span>
+                        {row.declaredVersion === row.resolvedVersion ? null : (
+                          <span className="muted">required {row.declaredVersion}</span>
+                        )}
+                      </button>
+                      <MoreButton
+                        label={`Actions for ${row.name} in ${row.project}`}
+                        onOpen={openRowMenu}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1759,6 +2323,7 @@ function Inspector({
   onUpdate,
   onApplyTargets,
   onOpenManifest,
+  onOpenMenu,
   why,
   onWhy,
   releaseNotes,
@@ -1777,7 +2342,8 @@ function Inspector({
   readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
   readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
-  readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onOpenManifest: (manifestPath: string, name?: string) => void;
+  readonly onOpenMenu: OpenMenuFn;
   readonly why?: { readonly text?: string; readonly error?: string };
   readonly onWhy: (manifestPath: string, name: string) => void;
   readonly releaseNotes: Readonly<Record<string, ReleaseNotes | null>>;
@@ -1929,7 +2495,12 @@ function Inspector({
           checkedManifests={checkedManifests}
           disabled={busy}
           onToggle={toggleProject}
+          onSelectOnlyProject={(manifestPath) => setCheckedManifests(new Set([manifestPath]))}
+          onSelectAllProjects={() =>
+            setCheckedManifests(new Set(projects.map((project) => project.manifestPath)))
+          }
           onOpenManifest={onOpenManifest}
+          onOpenMenu={onOpenMenu}
         />
       ) : null}
 
@@ -2178,6 +2749,7 @@ function Inspector({
           row={row}
           busy={busy}
           onUpdate={onUpdate}
+          onOpenMenu={onOpenMenu}
         />
       ))}
 
@@ -2195,20 +2767,60 @@ function AdvisoryCard({
   row,
   busy,
   onUpdate,
+  onOpenMenu,
 }: {
   readonly advisory: Advisory;
   readonly row: DependencyRow;
   readonly busy: boolean;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+  readonly onOpenMenu: OpenMenuFn;
 }): JSX.Element {
   const fix = advisoryFixOffer(advisory, row.resolvedVersion);
   const reason = fix.offered ? undefined : fix.reason;
+  const openAdvisoryMenu = (
+    anchor: { readonly x: number; readonly y: number },
+    focusFirst?: boolean,
+  ): void => {
+    onOpenMenu(
+      anchor,
+      buildAdvisoryCardMenu({
+        advisory,
+        row,
+        locked: busy,
+      }),
+      { focusFirst },
+    );
+  };
 
   return (
-    <div className={advisory.reachable === true ? 'callout reachable' : 'callout'}>
+    <div
+      className={advisory.reachable === true ? 'callout reachable' : 'callout'}
+      tabIndex={0}
+      onContextMenu={(event) => {
+        if (shouldKeepNativeContextMenu(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        openAdvisoryMenu({ x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (isContextMenuKey(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          openAdvisoryMenu(elementAnchor(event.currentTarget), true);
+        }
+      }}
+    >
       <WarningIcon size={16} />
-      <div>
-        <strong>Advisory affects this module</strong>
+      <div className="callout-body">
+        <div className="callout-head">
+          <strong>Advisory affects this module</strong>
+          <MoreButton
+            label={`Actions for ${advisory.id}`}
+            onOpen={openAdvisoryMenu}
+          />
+        </div>
         <p className="mono">
           {advisory.id} · {advisory.summary}
           {` · ${affectedRangeText(advisory)}`}
@@ -2251,6 +2863,204 @@ function AdvisoryCard({
   );
 }
 
+function MoreButton({
+  label,
+  onOpen,
+}: {
+  readonly label: string;
+  readonly onOpen: (
+    anchor: { readonly x: number; readonly y: number },
+    focusFirst?: boolean,
+  ) => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="more-button"
+      title={label}
+      aria-label={label}
+      aria-haspopup="menu"
+      onClick={(event) => {
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onOpen({ x: rect.left, y: rect.bottom + 4 }, event.detail === 0);
+      }}
+    >
+      <MoreIcon />
+    </button>
+  );
+}
+
+function ContextMenu({
+  menu,
+  onClose,
+  onAction,
+}: {
+  readonly menu: OpenMenuState;
+  readonly onClose: () => void;
+  readonly onAction: (action: ContextMenuAction) => void;
+}): JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ readonly x: number; readonly y: number }>({
+    x: menu.x,
+    y: menu.y,
+  });
+
+  useLayoutEffect(() => {
+    const node = menuRef.current;
+    if (!node) {
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    setCoords(
+      clampMenuPosition(
+        { x: menu.x, y: menu.y },
+        { width: rect.width, height: rect.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+    const items = enabledMenuElements(node);
+    if (menu.focusFirst && items[0] !== undefined) {
+      items[0].focus();
+    } else {
+      node.focus();
+    }
+  }, [menu]);
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent): void => {
+      if (
+        menuRef.current &&
+        event.target instanceof Node &&
+        !menuRef.current.contains(event.target)
+      ) {
+        onClose();
+      }
+    };
+    const onDismiss = (): void => onClose();
+    window.addEventListener('mousedown', onMouseDown, true);
+    window.addEventListener('blur', onDismiss);
+    window.addEventListener('resize', onDismiss);
+    window.addEventListener('scroll', onDismiss, true);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown, true);
+      window.removeEventListener('blur', onDismiss);
+      window.removeEventListener('resize', onDismiss);
+      window.removeEventListener('scroll', onDismiss, true);
+    };
+  }, [onClose]);
+
+  const nonEmptySections = menu.sections.filter((section) => section.items.length > 0);
+
+  return (
+    <div
+      ref={menuRef}
+      className="menu context-menu"
+      role="menu"
+      tabIndex={-1}
+      style={{ left: `${coords.x}px`, top: `${coords.y}px` }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onKeyDown={(event) => {
+        const node = menuRef.current;
+        if (!node) {
+          return;
+        }
+        if (event.key === 'Escape' || event.key === 'Tab') {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        const items = enabledMenuElements(node);
+        if (items.length === 0) {
+          return;
+        }
+        const currentIndex = items.findIndex((el) => el === document.activeElement);
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length;
+          items[next]?.focus();
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          event.stopPropagation();
+          const prev =
+            currentIndex <= 0 ? items.length - 1 : (currentIndex - 1) % items.length;
+          items[prev]?.focus();
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          event.stopPropagation();
+          items[0]?.focus();
+        } else if (event.key === 'End') {
+          event.preventDefault();
+          event.stopPropagation();
+          items[items.length - 1]?.focus();
+        }
+      }}
+    >
+      {nonEmptySections.map((section, sectionIndex) => (
+        <div key={section.id} className="menu-section" role="group">
+          {sectionIndex > 0 ? <div className="menu-divider" role="separator" /> : null}
+          {section.items.map((item) => {
+            if (item.action.type === 'open-external' && !item.disabled) {
+              return (
+                <a
+                  key={item.id}
+                  role="menuitem"
+                  href={item.action.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => onClose()}
+                >
+                  {item.label}
+                </a>
+              );
+            }
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => onAction(item.action)}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function enabledMenuElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'),
+  );
+}
+
+function shouldKeepNativeContextMenu(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, code, pre'));
+}
+
+function isContextMenuKey(event: ReactKeyboardEvent): boolean {
+  return event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+}
+
+function elementAnchor(element: HTMLElement): { readonly x: number; readonly y: number } {
+  const more = element.querySelector<HTMLElement>('.more-button');
+  if (more) {
+    const moreRect = more.getBoundingClientRect();
+    return { x: moreRect.left, y: moreRect.bottom + 4 };
+  }
+  const rect = element.getBoundingClientRect();
+  return { x: rect.left + Math.min(rect.width / 2, 160), y: rect.top + rect.height / 2 };
+}
+
 async function copyPath(path: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(path);
@@ -2261,34 +3071,6 @@ async function copyPath(path: string): Promise<void> {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value !== '';
-}
-
-function repositoryUrl(modulePath: string): string | undefined {
-  const match = /^(github\.com|gitlab\.com|bitbucket\.org)\/([^/]+)\/([^/]+)/.exec(
-    modulePath,
-  );
-  if (match === null) {
-    return undefined;
-  }
-  return `https://${match[1]}/${match[2]}/${match[3]}`;
-}
-
-/** The module whose code actually runs: the replace target, or the declared path. */
-function linkModulePath(row: DependencyRow): string | undefined {
-  if (row.replacement === undefined) {
-    return row.name;
-  }
-  return row.replacement.version === undefined ? undefined : row.replacement.path;
-}
-
-function pkgUrl(row: DependencyRow): string | undefined {
-  const path = linkModulePath(row);
-  return path === undefined ? undefined : `https://pkg.go.dev/${path}`;
-}
-
-function repositoryUrlFor(row: DependencyRow): string | undefined {
-  const path = linkModulePath(row);
-  return path === undefined ? undefined : repositoryUrl(path);
 }
 
 function ageOf(iso: string): string {
