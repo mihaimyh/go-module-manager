@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.26
+
+### Added
+
+- **Browse** tab (opened by default as the first tab) searches public Go modules via `pkg.go.dev/v1/search` and resolves selectable versions from `go list -m -versions -json` (ADR 0013).
+- Private module paths matching `GOPRIVATE` / `GONOPROXY` never contact `pkg.go.dev` and resolve directly via `go list -m -versions -json`.
+- Inspector in **Browse** and **Consolidate** includes a Visual Studio Solution-style per-project checklist (`[x] Project | Installed`) to install, update, consolidate, or uninstall (`@none`) across checked `go.mod` files in one click with single-level undo.
+- **Uninstall** (`go get <module>@none`) in **Browse** and **Installed** inspectors, with safe one-click removal when unused and an impact confirmation when imported by workspace `.go` packages or when MVS reports collateral changes.
+- Top-toolbar **Include prerelease** toggle filters candidate badges, **Updates** count/list, and inspector version pickers across all tabs.
+- Inspector shows module license, publish date, repository link, one-click `Copy import`, and an `// indirect` note for newly added modules.
+
+### Changed
+
+- Renamed the **Dependencies** tab to **Installed** (`#installed` and `#dependencies` hashes both open it).
+
 ## 0.1.25
 
 ### Added
