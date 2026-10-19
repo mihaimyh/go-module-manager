@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
+import { advisoryFix } from '../core/advisoryAction';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
@@ -633,7 +634,12 @@ function Inspector({
       ) : null}
 
       {row.advisories.map((advisory) => (
-        <AdvisoryCard key={advisory.id} advisory={advisory} />
+        <AdvisoryCard
+          key={advisory.id}
+          advisory={advisory}
+          row={row}
+          onUpdate={onUpdate}
+        />
       ))}
 
       <p className="footnote mono">
@@ -643,7 +649,17 @@ function Inspector({
   );
 }
 
-function AdvisoryCard({ advisory }: { readonly advisory: Advisory }): JSX.Element {
+function AdvisoryCard({
+  advisory,
+  row,
+  onUpdate,
+}: {
+  readonly advisory: Advisory;
+  readonly row: DependencyRow;
+  readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+}): JSX.Element {
+  const fix = advisoryFix(advisory, row.resolvedVersion);
+
   return (
     <div className="callout">
       <WarningIcon size={16} />
@@ -653,13 +669,27 @@ function AdvisoryCard({ advisory }: { readonly advisory: Advisory }): JSX.Elemen
           {advisory.id} · {advisory.summary}
           {advisory.fixedIn ? ` · fixed in ${advisory.fixedIn}` : ''}
         </p>
-        <a
-          href={`https://pkg.go.dev/vuln/${advisory.id}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open advisory <ArrowRightIcon />
-        </a>
+        <div className="callout-actions">
+          <a
+            href={`https://pkg.go.dev/vuln/${advisory.id}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open advisory <ArrowRightIcon />
+          </a>
+          {fix.offered ? (
+            <button
+              type="button"
+              className="button primary compact"
+              title={`Run go get ${row.name}@${fix.version}`}
+              onClick={() => onUpdate(row.manifestPath, row.name, fix.version)}
+            >
+              Update to {fix.version}
+            </button>
+          ) : (
+            <span className="muted callout-reason">{fix.reason}</span>
+          )}
+        </div>
       </div>
     </div>
   );

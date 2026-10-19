@@ -731,9 +731,21 @@ tbody th.col-module {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
   color: var(--vscode-textLink-foreground, #3794ff);
   text-decoration: none;
+}
+
+.callout-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.callout-reason {
+  font-size: 11px;
+  font-style: italic;
 }
 
 .callout a:hover {
