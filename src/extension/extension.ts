@@ -179,10 +179,37 @@ async function runGroups(
   }
 
   for (const group of groups) {
+    let result: UpdateResult;
     try {
-      results.push(await update(group));
+      result = await update(group);
     } catch (error) {
-      results.push({ ...group, status: 'failed', message: messageOf(error) });
+      result = { ...group, status: 'failed', message: messageOf(error) };
+    }
+
+    // One bad module makes the whole `go get` fail. Retry the group one
+    // dependency at a time so the healthy ones still move; every retry reuses
+    // the snapshot taken before the group.
+    if (result.status === 'failed' && group.changes.length > 1) {
+      for (const change of group.changes) {
+        try {
+          results.push(
+            await update({
+              manifestPath: group.manifestPath,
+              changes: [change],
+              snapshot: false,
+            }),
+          );
+        } catch (error) {
+          results.push({
+            manifestPath: group.manifestPath,
+            changes: [change],
+            status: 'failed',
+            message: messageOf(error),
+          });
+        }
+      }
+    } else {
+      results.push(result);
     }
   }
 
@@ -210,24 +237,24 @@ async function runGroups(
 
 async function undoResults(
   adapter: EcosystemAdapter,
-  results: readonly UpdateResult[],
+  manifests: readonly string[],
 ): Promise<void> {
   const undo = adapter.undo;
   if (undo === undefined) {
     return;
   }
 
-  for (const result of results) {
+  for (const manifestPath of manifests) {
     try {
-      const restored = await undo(result.manifestPath);
+      const restored = await undo(manifestPath);
       if (!restored) {
         void vscode.window.showWarningMessage(
-          `GMM: nothing to undo for ${result.manifestPath}.`,
+          `GMM: nothing to undo for ${manifestPath}.`,
         );
       }
     } catch (error) {
       void vscode.window.showErrorMessage(
-        `GMM: undo failed for ${result.manifestPath}. ${messageOf(error)}`,
+        `GMM: undo failed for ${manifestPath}. ${messageOf(error)}`,
       );
     }
   }
@@ -271,7 +298,7 @@ async function updateDependency(
       'Undo',
     );
     if (choice === 'Undo') {
-      await undoResults(loaded.adapter, [result]);
+      await undoResults(loaded.adapter, [request.manifestPath]);
       await refresh(context, false);
     }
   } finally {
@@ -325,7 +352,7 @@ async function bulkUpdate(
 
     if (failed.length > 0) {
       void vscode.window.showErrorMessage(
-        `GMM: ${failed.length} of ${results.length} project updates failed.`,
+        `GMM: ${failed.length} of ${results.length} dependency updates failed.`,
       );
     }
     if (succeeded.length === 0) {
@@ -334,12 +361,15 @@ async function bulkUpdate(
 
     GmmPanel.clearSelection();
     const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
+    const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
     const choice = await vscode.window.showInformationMessage(
-      `GMM: ${moved} dependencies updated in ${succeeded.length} project(s).`,
+      `GMM: ${moved} dependencies updated in ${projectCount} project(s).`,
       'Undo',
     );
     if (choice === 'Undo') {
-      await undoResults(loaded.adapter, succeeded);
+      await undoResults(loaded.adapter, [
+        ...new Set(succeeded.map((result) => result.manifestPath)),
+      ]);
       await refresh(context, false);
     }
   } finally {

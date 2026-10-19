@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10
+
+### Fixed
+
+- A bulk update no longer fails as a whole when one module breaks the group's `go get`. The group is retried one dependency at a time, so the healthy modules move and only the broken one reports an error.
+- One Undo still restores `go.mod`/`go.sum` to the state before the whole action, including after the per-module fallback.
+- The success and failure notifications count dependencies instead of project groups.
+
 ## 0.1.9
 
 ### Fixed

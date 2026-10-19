@@ -25,7 +25,9 @@ export function createUpdater(runner: GoRunner): GoUpdater {
 
   return {
     async update(request) {
-      snapshots.set(request.manifestPath, snapshotOf(request.manifestPath));
+      if (request.snapshot !== false) {
+        snapshots.set(request.manifestPath, snapshotOf(request.manifestPath));
+      }
 
       const targets = request.changes.map((change) => `${change.name}@${change.version}`);
       const result = await runner.run(['get', ...targets], {
@@ -35,7 +37,8 @@ export function createUpdater(runner: GoRunner): GoUpdater {
       });
 
       if (result.exitCode !== 0) {
-        snapshots.delete(request.manifestPath);
+        // Keep the snapshot: a fallback may still move other modules, and one
+        // Undo must restore the state from before the whole action.
         return {
           manifestPath: request.manifestPath,
           changes: request.changes,

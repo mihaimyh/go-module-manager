@@ -137,6 +137,30 @@ describe('updating dependencies', () => {
     expect(readFileSync(manifestPath, 'utf8')).toBe(
       'module example.com/a\n\n// partially written\n',
     );
-    expect(await updater.undo(manifestPath)).toBe(false);
+    // The snapshot survives a failure so a fallback can undo the whole action.
+    expect(await updater.undo(manifestPath)).toBe(true);
+    expect(readFileSync(manifestPath, 'utf8')).toBe(BEFORE);
+  });
+
+  it('keeps the first snapshot across fallback retries', async () => {
+    const manifestPath = module('rsc.io/quote v1.5.1 h1:old=\n');
+    const runner = new FakeRunner((cwd) => {
+      writeFileSync(join(cwd, 'go.mod'), 'module example.com/a\n\nrequire rsc.io/quote v1.5.9\n');
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const updater = createUpdater(runner);
+
+    await updater.update({
+      manifestPath,
+      changes: [{ name: 'rsc.io/quote', version: 'v1.5.2' }],
+    });
+    await updater.update({
+      manifestPath,
+      changes: [{ name: 'rsc.io/sampler', version: 'v1.3.0' }],
+      snapshot: false,
+    });
+    await updater.undo(manifestPath);
+
+    expect(readFileSync(manifestPath, 'utf8')).toBe(BEFORE);
   });
 });

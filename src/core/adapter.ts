@@ -19,6 +19,8 @@ export interface PlannedChange {
 export interface UpdateRequest {
   readonly manifestPath: string;
   readonly changes: readonly PlannedChange[];
+  /** False for fallback retries that must reuse the action's first snapshot. */
+  readonly snapshot?: boolean;
 }
 
 export interface UpdateResult {
