@@ -13,6 +13,8 @@ export type HostToWebview =
       readonly progress?: ResolveProgress;
     }
   | { readonly type: 'clear-selection' }
+  | { readonly type: 'busy'; readonly label?: string }
+  | { readonly type: 'versions-loading'; readonly modulePath: string }
   | {
       readonly type: 'versions';
       readonly modulePath: string;

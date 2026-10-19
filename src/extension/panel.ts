@@ -73,9 +73,8 @@ export class GmmPanel {
     if (current) {
       current.model = model;
       current.progress = progress;
-      current.post();
     }
-    GmmPanel.publish({
+    GmmPanel.send({
       type: 'model',
       model,
       ...(progress === undefined ? {} : { progress }),
@@ -83,11 +82,20 @@ export class GmmPanel {
   }
 
   static clearSelection(): void {
-    GmmPanel.publish({ type: 'clear-selection' });
+    GmmPanel.send({ type: 'clear-selection' });
   }
 
   static postVersions(modulePath: string, versions: readonly string[]): void {
-    GmmPanel.publish({ type: 'versions', modulePath, versions });
+    GmmPanel.send({ type: 'versions', modulePath, versions });
+  }
+
+  static postVersionsLoading(modulePath: string): void {
+    GmmPanel.send({ type: 'versions-loading', modulePath });
+  }
+
+  /** A label means work started; no label means it finished. */
+  static postBusy(label?: string): void {
+    GmmPanel.send(label === undefined ? { type: 'busy' } : { type: 'busy', label });
   }
 
   static isOpen(): boolean {
@@ -102,19 +110,23 @@ export class GmmPanel {
     };
   }
 
-  private static publish(message: HostToWebview): void {
+  /** Every surface gets the message, including the editor panel itself. */
+  private static send(message: HostToWebview): void {
+    const current = GmmPanel.current;
+    if (current !== undefined) {
+      void current.panel.webview.postMessage(message);
+    }
     for (const send of GmmPanel.subscribers) {
       send(message);
     }
   }
 
   private post(): void {
-    const message: HostToWebview = {
+    GmmPanel.send({
       type: 'model',
       model: this.model,
       ...(this.progress === undefined ? {} : { progress: this.progress }),
-    };
-    void this.panel.webview.postMessage(message);
+    });
   }
 
   private dispose(): void {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.15
+
+### Added
+
+- Loading states for every async step: a spinner while the workspace is read, a progress strip with a bar while updates are checked, a busy strip with disabled actions during updates, `go mod tidy`, reachability scans, checksum repair and govulncheck install, and **Loading all versions…** in the inspector.
+
+### Fixed
+
+- Tab counts follow **Direct only** and the owning-module filter, so **Updates** no longer reports a number the list cannot show.
+- An empty view says why: "N updates hidden by Direct only" with **Show indirect too**, or **Clear filter** when a search has no hits.
+- The editor panel receives version lists and selection resets again; the shared-surface refactor had sent them only to the Activity Bar view.
 ## 0.1.14
 
 ### Fixed

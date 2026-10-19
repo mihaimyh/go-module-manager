@@ -41,6 +41,8 @@ type Tab = 'dependencies' | 'updates' | 'vulnerabilities';
 interface AppProps {
   readonly model: PanelModel | undefined;
   readonly progress?: ResolveProgress;
+  readonly busy?: string;
+  readonly versionsLoading: Readonly<Record<string, boolean>>;
   readonly clearSignal?: number;
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
@@ -57,6 +59,8 @@ interface AppProps {
 export function App({
   model,
   progress,
+  busy,
+  versionsLoading,
   clearSignal,
   onRefresh,
   onRecover,
@@ -108,24 +112,45 @@ export function App({
     [projects],
   );
   const updates = rows.filter((row) => row.candidate !== undefined);
-  const advisoryRows = rows.filter((row) => row.advisories.length > 0);
+
+  // Tab counts follow Direct only and the owning module, so a tab never shows
+  // a number the list cannot display. The search box narrows within a tab; it
+  // only changes the "x of y" chip.
+  const scopedRows = rows.filter(
+    (row) =>
+      (!directOnly || !row.transitive) &&
+      (moduleFilter === 'all' || row.project === moduleFilter),
+  );
+  const scopedUpdates = scopedRows.filter((row) => row.candidate !== undefined);
+  const scopedAdvisoryRows = scopedRows.filter((row) => row.advisories.length > 0);
+  const scopedAdvisoryIds = new Set(
+    scopedRows.flatMap((row) => row.advisories.map((advisory) => advisory.id)),
+  );
   const tabRows =
-    tab === 'updates' ? updates : tab === 'vulnerabilities' ? advisoryRows : rows;
-  const advisoryIds = new Set(rows.flatMap((row) => row.advisories.map((a) => a.id)));
+    tab === 'updates'
+      ? scopedUpdates
+      : tab === 'vulnerabilities'
+        ? scopedAdvisoryRows
+        : scopedRows;
+
+  const hiddenByDirect = !directOnly
+    ? 0
+    : tab === 'vulnerabilities'
+      ? new Set(
+          rows
+            .filter((row) => row.transitive)
+            .flatMap((row) => row.advisories.map((advisory) => advisory.id)),
+        ).size
+      : tab === 'updates'
+        ? updates.filter((row) => row.transitive).length
+        : rows.filter((row) => row.transitive).length;
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-
-    return tabRows.filter((row) => {
-      if (directOnly && row.transitive) {
-        return false;
-      }
-      if (moduleFilter !== 'all' && row.project !== moduleFilter) {
-        return false;
-      }
-      return needle === '' || row.name.toLowerCase().includes(needle);
-    });
-  }, [tabRows, query, moduleFilter, directOnly]);
+    return tabRows.filter(
+      (row) => needle === '' || row.name.toLowerCase().includes(needle),
+    );
+  }, [tabRows, query]);
 
   const sorted = useMemo(() => sortRows(visible, sort), [visible, sort]);
 
@@ -174,8 +199,22 @@ export function App({
   })();
 
   if (!model) {
-    return <p className="empty">Reading the workspace…</p>;
+    return (
+      <div className="app loading-screen" role="status" aria-live="polite">
+        <span className="spinner large" aria-hidden="true" />
+        <p className="loading-title">Reading the workspace…</p>
+        <p className="muted">Looking for go.mod files and their dependencies.</p>
+      </div>
+    );
   }
+
+  const checking = progress !== undefined && progress.done < progress.total;
+  const statusLabel =
+    busy ?? (checking ? `Checking updates… ${progress.done}/${progress.total}` : undefined);
+  const statusPercent =
+    progress !== undefined && progress.total > 0 && checking
+      ? Math.round((progress.done / progress.total) * 100)
+      : undefined;
 
   const allChecked = visible.length > 0 && visible.every((row) => checked.has(row.id));
 
@@ -274,6 +313,7 @@ export function App({
             type="button"
             className="button secondary"
             onClick={() => onTidy(targetManifests)}
+            disabled={busy !== undefined}
             title="Run go mod tidy in the selected projects"
           >
             <TerminalIcon />
@@ -283,6 +323,7 @@ export function App({
             type="button"
             className="button primary"
             onClick={onRefresh}
+            disabled={busy !== undefined}
             title="Re-run the update lookup"
           >
             <RefreshIcon />
@@ -291,22 +332,34 @@ export function App({
         </div>
       </header>
 
+      {statusLabel !== undefined ? (
+        <div className="status-strip" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span className="status-label">{statusLabel}</span>
+          {statusPercent !== undefined ? (
+            <span className="status-track" aria-hidden="true">
+              <span className="status-fill" style={{ width: `${statusPercent}%` }} />
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <nav className="tabs" aria-label="Views">
         <TabButton
           label="Dependencies"
-          count={rows.length}
+          count={scopedRows.length}
           active={tab === 'dependencies'}
           onClick={() => setTab('dependencies')}
         />
         <TabButton
           label="Updates"
-          count={updates.length}
+          count={scopedUpdates.length}
           active={tab === 'updates'}
           onClick={() => setTab('updates')}
         />
         <TabButton
           label="Vulnerabilities"
-          count={advisoryIds.size}
+          count={scopedAdvisoryIds.size}
           tone={reachable ? 'danger' : 'warning'}
           active={tab === 'vulnerabilities'}
           onClick={() => setTab('vulnerabilities')}
@@ -314,11 +367,6 @@ export function App({
         <button type="button" className="tab disabled" disabled title="Lands in 1.0">
           Consolidate
         </button>
-        {progress !== undefined && progress.done < progress.total ? (
-          <span className="selection-count">
-            checking {progress.done}/{progress.total}
-          </span>
-        ) : null}
         {checked.size > 0 ? (
           <span className="selection-count">
             {visibleSelected.length} selected
@@ -329,7 +377,7 @@ export function App({
           <button
             type="button"
             className="button primary compact"
-            disabled={updatable.length === 0}
+            disabled={busy !== undefined || updatable.length === 0}
             title={
               updatable.length === 0
                 ? 'Nothing in this selection has an update'
@@ -367,6 +415,7 @@ export function App({
                 <button
                   type="button"
                   className="button secondary"
+                  disabled={busy !== undefined}
                   onClick={() =>
                     onRecover(project.manifestPath, RECOVERY[failure.kind].action)
                   }
@@ -392,7 +441,7 @@ export function App({
               <button
                 type="button"
                 className="button secondary compact"
-                disabled={targetManifests.length === 0}
+                disabled={busy !== undefined || targetManifests.length === 0}
                 title="Run govulncheck through go run for the selected project"
                 onClick={() => onScan(targetManifests)}
               >
@@ -401,6 +450,7 @@ export function App({
               <button
                 type="button"
                 className="link-button"
+                disabled={busy !== undefined}
                 title="Scans already use the latest govulncheck through go run; install it only if you also want the CLI."
                 onClick={onInstallScanner}
               >
@@ -474,7 +524,15 @@ export function App({
               ))}
             </tbody>
           </table>
-          {visible.length === 0 ? <EmptyState tab={tab} /> : null}
+          {visible.length === 0 ? (
+            <EmptyState
+              tab={tab}
+              query={query}
+              hiddenByDirect={hiddenByDirect}
+              onClearQuery={() => setQuery('')}
+              onShowIndirect={() => setDirectOnly(false)}
+            />
+          ) : null}
         </section>
 
         <aside className="inspector" aria-label="Details">
@@ -483,6 +541,8 @@ export function App({
               key={selected.id}
               row={selected}
               versions={versions[selected.name]}
+              versionsPending={versionsLoading[selected.name] === true}
+              busy={busy !== undefined}
               onVersions={onVersions}
               onUpdate={onUpdate}
             />
@@ -681,7 +741,49 @@ function UpdateCell({
   return <span className="mono candidate">{row.candidate}</span>;
 }
 
-function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
+function EmptyState({
+  tab,
+  query,
+  hiddenByDirect,
+  onClearQuery,
+  onShowIndirect,
+}: {
+  readonly tab: Tab;
+  readonly query: string;
+  readonly hiddenByDirect: number;
+  readonly onClearQuery: () => void;
+  readonly onShowIndirect: () => void;
+}): JSX.Element {
+  if (query.trim() !== '') {
+    return (
+      <div className="empty empty-action">
+        <p>Nothing matches “{query.trim()}”.</p>
+        <button type="button" className="link-button" onClick={onClearQuery}>
+          Clear filter
+        </button>
+      </div>
+    );
+  }
+
+  if (hiddenByDirect > 0) {
+    const noun =
+      tab === 'updates'
+        ? 'updates'
+        : tab === 'vulnerabilities'
+          ? 'advisories'
+          : 'dependencies';
+    return (
+      <div className="empty empty-action">
+        <p>
+          {hiddenByDirect} {noun} hidden by <strong>Direct only</strong>.
+        </p>
+        <button type="button" className="link-button" onClick={onShowIndirect}>
+          Show indirect too
+        </button>
+      </div>
+    );
+  }
+
   if (tab === 'vulnerabilities') {
     return (
       <p className="empty">
@@ -690,17 +792,24 @@ function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
       </p>
     );
   }
-  return <p className="empty">Nothing matches those filters.</p>;
+  if (tab === 'updates') {
+    return <p className="empty">Everything is up to date.</p>;
+  }
+  return <p className="empty">No dependencies in this view.</p>;
 }
 
 function Inspector({
   row,
   versions,
+  versionsPending,
+  busy,
   onVersions,
   onUpdate,
 }: {
   readonly row: DependencyRow;
   readonly versions: readonly string[] | undefined;
+  readonly versionsPending: boolean;
+  readonly busy: boolean;
   readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
@@ -806,7 +915,7 @@ function Inspector({
         <button
           type="button"
           className="button primary"
-          disabled={chosen === row.resolvedVersion}
+          disabled={busy || chosen === row.resolvedVersion}
           title={
             chosen === row.resolvedVersion
               ? 'Already resolved at this version'
@@ -817,6 +926,12 @@ function Inspector({
           Update
         </button>
       </div>
+
+      {versionsPending ? (
+        <p className="version-note muted">
+          <span className="spinner" aria-hidden="true" /> Loading all versions…
+        </p>
+      ) : null}
 
       {row.advisoryUnchecked === true ? (
         <p className="unchecked-note mono">

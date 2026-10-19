@@ -9,7 +9,9 @@ import './webview.css';
 interface ViewState {
   readonly model?: PanelModel;
   readonly progress?: ResolveProgress;
+  readonly busy?: string;
   readonly versions?: Readonly<Record<string, readonly string[]>>;
+  readonly versionsLoading?: Readonly<Record<string, boolean>>;
 }
 
 function Root(): JSX.Element {
@@ -26,11 +28,22 @@ function Root(): JSX.Element {
       if (message.type === 'clear-selection') {
         setClearSignal((current) => current + 1);
       }
+      if (message.type === 'busy') {
+        setState((current) => ({ ...current, busy: message.label }));
+      }
+      if (message.type === 'versions-loading') {
+        const { modulePath } = message;
+        setState((current) => ({
+          ...current,
+          versionsLoading: { ...current.versionsLoading, [modulePath]: true },
+        }));
+      }
       if (message.type === 'versions') {
         const { modulePath, versions } = message;
         setState((current) => ({
           ...current,
           versions: { ...current.versions, [modulePath]: versions },
+          versionsLoading: { ...current.versionsLoading, [modulePath]: false },
         }));
       }
     };
@@ -89,6 +102,8 @@ function Root(): JSX.Element {
     <App
       model={state.model}
       progress={state.progress}
+      busy={state.busy}
+      versionsLoading={state.versionsLoading ?? {}}
       clearSignal={clearSignal}
       versions={state.versions ?? {}}
       onVersions={onVersions}

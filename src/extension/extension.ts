@@ -106,6 +106,16 @@ export function deactivate(): void {
   // Nothing to tear down: the panel and the watcher own their disposables.
 }
 
+/** Runs a user-visible operation with one shared loading state. */
+async function withBusy<T>(label: string, work: () => Promise<T>): Promise<T> {
+  GmmPanel.postBusy(label);
+  try {
+    return await work();
+  } finally {
+    GmmPanel.postBusy(undefined);
+  }
+}
+
 function logInvocation(invocation: GoInvocation): void {
   if (output === undefined) {
     return;
@@ -258,7 +268,7 @@ async function handleRecovery(
       return;
     }
     try {
-      await clean();
+      await withBusy('Repairing Go cache…', clean);
       await refresh(context, true);
     } catch (error) {
       void vscode.window.showErrorMessage(`GMM: ${messageOf(error)}`);
@@ -274,12 +284,12 @@ async function handleRecovery(
       );
       return;
     }
-    void repair(manifestPath).then(
-      () => refresh(context, false),
-      (error: unknown) => {
-        showFailure(manifestPath, error);
-      },
-    );
+    try {
+      await withBusy('Downloading modules…', () => repair(manifestPath));
+      await refresh(context, false);
+    } catch (error) {
+      showFailure(manifestPath, error);
+    }
     return;
   }
 
@@ -442,7 +452,9 @@ async function updateDependency(
 
   updating = true;
   try {
-    const results = await runGroups(context, loaded.adapter, [request]);
+    const results = await withBusy('Updating dependencies…', () =>
+      runGroups(context, loaded.adapter, [request]),
+    );
     const result = results[0];
     const change = request.changes[0];
     if (result === undefined || change === undefined) {
@@ -518,7 +530,9 @@ async function bulkUpdate(
       return;
     }
 
-    const results = await runGroups(context, loaded.adapter, groups);
+    const results = await withBusy('Updating dependencies…', () =>
+      runGroups(context, loaded.adapter, groups),
+    );
     const failed = results.filter((result) => result.status === 'failed');
     const succeeded = results.filter((result) => result.status === 'updated');
 
@@ -589,13 +603,15 @@ async function tidyProjects(
       return;
     }
 
-    for (const manifestPath of targets) {
-      try {
-        await tidy(manifestPath);
-      } catch (error) {
-        showFailure(manifestPath, error);
+    await withBusy('Running go mod tidy…', async () => {
+      for (const manifestPath of targets) {
+        try {
+          await tidy(manifestPath);
+        } catch (error) {
+          showFailure(manifestPath, error);
+        }
       }
-    }
+    });
     await refresh(context, false);
   } finally {
     updating = false;
@@ -621,43 +637,45 @@ async function scanProjects(manifests: readonly string[]): Promise<void> {
   const token = cycle;
   updating = true;
   try {
-    for (const manifestPath of targets) {
-      if (token !== cycle || current === undefined) {
-        return;
-      }
-      current = {
-        ...current,
-        model: markScan(current.model, manifestPath, {
-          status: 'running',
-          at: new Date().toISOString(),
-        }),
-      };
-      GmmPanel.update(current.model);
-
-      try {
-        const findings = await scan(manifestPath);
-        if (token !== cycle || current === undefined) {
-          return;
-        }
-        current = {
-          ...current,
-          model: applyScan(current.model, manifestPath, findings, new Date().toISOString()),
-        };
-      } catch (error) {
+    await withBusy('Scanning reachable code…', async () => {
+      for (const manifestPath of targets) {
         if (token !== cycle || current === undefined) {
           return;
         }
         current = {
           ...current,
           model: markScan(current.model, manifestPath, {
-            status: 'failed',
+            status: 'running',
             at: new Date().toISOString(),
-            message: messageOf(error),
           }),
         };
+        GmmPanel.update(current.model);
+
+        try {
+          const findings = await scan(manifestPath);
+          if (token !== cycle || current === undefined) {
+            return;
+          }
+          current = {
+            ...current,
+            model: applyScan(current.model, manifestPath, findings, new Date().toISOString()),
+          };
+        } catch (error) {
+          if (token !== cycle || current === undefined) {
+            return;
+          }
+          current = {
+            ...current,
+            model: markScan(current.model, manifestPath, {
+              status: 'failed',
+              at: new Date().toISOString(),
+              message: messageOf(error),
+            }),
+          };
+        }
+        GmmPanel.update(current.model);
       }
-      GmmPanel.update(current.model);
-    }
+    });
   } finally {
     updating = false;
   }
@@ -670,6 +688,7 @@ async function requestVersions(modulePath: string): Promise<void> {
   }
 
   try {
+    GmmPanel.postVersionsLoading(modulePath);
     GmmPanel.postVersions(modulePath, await get(modulePath));
   } catch {
     // Keep the versions the panel already knows; the proxy is optional.
@@ -684,7 +703,7 @@ async function installScannerCli(): Promise<void> {
   }
 
   try {
-    await install();
+    await withBusy('Installing govulncheck…', install);
     void vscode.window.showInformationMessage(
       'GMM: govulncheck installed for terminal use. Scans already run the latest version through go run.',
     );
