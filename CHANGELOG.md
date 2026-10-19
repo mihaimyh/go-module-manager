@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5
+
+### Changed
+
+- The bulk confirmation now says how many selected rows have no update and will be skipped, and the button tooltip shows the same count.
+- The selection clears after a successful bulk update, so the next action starts from a clean state.
+
 ## 0.1.4
 
 ### Fixed

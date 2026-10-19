@@ -13,11 +13,15 @@ interface ViewState {
 
 function Root(): JSX.Element {
   const [state, setState] = useState<ViewState>({});
+  const [clearSignal, setClearSignal] = useState(0);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>): void => {
       if (event.data.type === 'model') {
         setState({ model: event.data.model, progress: event.data.progress });
+      }
+      if (event.data.type === 'clear-selection') {
+        setClearSignal((current) => current + 1);
       }
     };
     window.addEventListener('message', onMessage);
@@ -65,6 +69,7 @@ function Root(): JSX.Element {
     <App
       model={state.model}
       progress={state.progress}
+      clearSignal={clearSignal}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}

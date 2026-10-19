@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
 import { advisoryFixOffer } from '../core/advisoryAction';
 import { hasReachable } from '../core/scan';
@@ -40,6 +40,7 @@ type Tab = 'dependencies' | 'updates' | 'vulnerabilities';
 interface AppProps {
   readonly model: PanelModel | undefined;
   readonly progress?: ResolveProgress;
+  readonly clearSignal?: number;
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
@@ -52,6 +53,7 @@ interface AppProps {
 export function App({
   model,
   progress,
+  clearSignal,
   onRefresh,
   onRecover,
   onUpdate,
@@ -68,6 +70,12 @@ export function App({
   const [directOnly, setDirectOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+
+  useEffect(() => {
+    if ((clearSignal ?? 0) > 0) {
+      setChecked(new Set());
+    }
+  }, [clearSignal]);
 
   const rows = model?.rows ?? [];
   const projects = model?.projects ?? [];
@@ -283,7 +291,11 @@ export function App({
             title={
               updatable.length === 0
                 ? 'Nothing in this selection has an update'
-                : `Update ${updatable.length} dependencies`
+                : `Update ${updatable.length} dependencies${
+                    checked.size - updatable.length > 0
+                      ? `; ${checked.size - updatable.length} selected have no update`
+                      : ''
+                  }`
             }
             onClick={() =>
               onBulkUpdate(

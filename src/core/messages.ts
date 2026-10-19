@@ -6,11 +6,13 @@ export interface ResolveProgress {
   readonly total: number;
 }
 
-export type HostToWebview = {
-  readonly type: 'model';
-  readonly model: PanelModel;
-  readonly progress?: ResolveProgress;
-};
+export type HostToWebview =
+  | {
+      readonly type: 'model';
+      readonly model: PanelModel;
+      readonly progress?: ResolveProgress;
+    }
+  | { readonly type: 'clear-selection' };
 
 export type RecoveryAction = 'repair' | 'retry' | 'install';
 

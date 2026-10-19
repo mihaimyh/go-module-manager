@@ -303,10 +303,12 @@ async function bulkUpdate(
 
   updating = true;
   try {
+    const planned = groups.reduce((total, group) => total + group.changes.length, 0);
+    const skipped = Math.max(0, selection.length - planned);
     const confirmed = await vscode.window.showWarningMessage(
-      `Update dependencies in ${groups.length} go.mod file(s)?\n${groups
-        .map((group) => group.manifestPath)
-        .join('\n')}`,
+      `Update ${planned} dependencies in ${groups.length} go.mod file(s)?${
+        skipped > 0 ? `\n${skipped} selected rows have no update and will be skipped.` : ''
+      }\n${groups.map((group) => group.manifestPath).join('\n')}`,
       { modal: true },
       'Update',
     );
@@ -327,6 +329,7 @@ async function bulkUpdate(
       return;
     }
 
+    GmmPanel.clearSelection();
     const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
     const choice = await vscode.window.showInformationMessage(
       `GMM: ${moved} dependencies updated in ${succeeded.length} project(s).`,

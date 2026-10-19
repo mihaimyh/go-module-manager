@@ -143,6 +143,15 @@ export class GmmPanel {
     return GmmPanel.current !== undefined;
   }
 
+  static clearSelection(): void {
+    const current = GmmPanel.current;
+    if (current === undefined) {
+      return;
+    }
+    const message: HostToWebview = { type: 'clear-selection' };
+    void current.panel.webview.postMessage(message);
+  }
+
   private post(): void {
     const message: HostToWebview = {
       type: 'model',
