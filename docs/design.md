@@ -8,6 +8,8 @@ The panel layout comes from the Stitch project `GMM — Go Module Manager` (id `
 
 The mock's colours are a way to draw; the shipped UI reads `--vscode-*` tokens so it follows the user's theme. Nothing in the webview loads a remote font, icon set or script — icons are inline SVG, mono text uses the editor font.
 
+The advisory shown in the fixture (`GO-0000-00001` on `rsc.io/sampler`) is synthetic test data: it exists so the inspector's amber state has something to render before the advisory client lands. It is not a claim about that module.
+
 ## Non-goals in v1
 
 No package browsing, no installing new modules, no running builds or tests, no writing `go.work`, no hand-written `go.mod` parser, no telemetry, no central version file (Go has no `Directory.Packages.props`).

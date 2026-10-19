@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import type { DependencyRow, PanelModel } from '../core/model';
+import type { Advisory, DependencyRow, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
   ArrowRightIcon,
   ChevronIcon,
+  ExternalLinkIcon,
+  MoreIcon,
   PackageIcon,
   RefreshIcon,
   SearchIcon,
@@ -37,11 +39,16 @@ export function App({ model }: AppProps): JSX.Element {
   const rows = model?.rows ?? [];
   const modules = model?.modules ?? [];
   const updates = rows.filter((row) => row.candidate !== undefined);
+  const advisoryIds = new Set(rows.flatMap((row) => row.advisories.map((a) => a.id)));
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const byTab =
-      tab === 'updates' ? updates : tab === 'vulnerabilities' ? [] : rows;
+      tab === 'updates'
+        ? updates
+        : tab === 'vulnerabilities'
+          ? rows.filter((row) => row.advisories.length > 0)
+          : rows;
 
     return byTab.filter((row) => {
       if (directOnly && row.indirect) {
@@ -54,14 +61,19 @@ export function App({ model }: AppProps): JSX.Element {
     });
   }, [rows, updates, tab, query, moduleFilter, directOnly]);
 
-  // Open with the first actionable row selected: an empty inspector hides the
-  // part of the panel that answers "what happens if I update this".
-  const activeId = selectedId ?? rows.find((row) => row.candidate)?.id ?? rows[0]?.id;
+  // Open on the row that needs attention: an advisory first, then an update.
+  const activeId =
+    selectedId ??
+    rows.find((row) => row.advisories.length > 0)?.id ??
+    rows.find((row) => row.candidate !== undefined)?.id ??
+    rows[0]?.id;
   const selected = rows.find((row) => row.id === activeId);
 
   if (!model) {
     return <p className="empty">Reading the workspace…</p>;
   }
+
+  const allChecked = visible.length > 0 && visible.every((row) => checked.has(row.id));
 
   const toggle = (id: string): void => {
     setChecked((current) => {
@@ -70,6 +82,20 @@ export function App({ model }: AppProps): JSX.Element {
         next.delete(id);
       } else {
         next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = (): void => {
+    setChecked((current) => {
+      const next = new Set(current);
+      for (const row of visible) {
+        if (allChecked) {
+          next.delete(row.id);
+        } else {
+          next.add(row.id);
+        }
       }
       return next;
     });
@@ -165,7 +191,7 @@ export function App({ model }: AppProps): JSX.Element {
         />
         <TabButton
           label="Vulnerabilities"
-          count={0}
+          count={advisoryIds.size}
           tone="warning"
           active={tab === 'vulnerabilities'}
           onClick={() => setTab('vulnerabilities')}
@@ -181,23 +207,32 @@ export function App({ model }: AppProps): JSX.Element {
       <main className="workspace">
         <section className="list" aria-label="Dependencies">
           <table>
+            <colgroup>
+              <col className="col-check" />
+              <col />
+              <col className="col-owning" />
+              <col className="col-version" />
+              <col className="col-version" />
+              <col className="col-update" />
+              <col className="col-actions" />
+            </colgroup>
             <thead>
               <tr>
                 <th scope="col" className="col-check">
-                  <span className="sr-only">Select</span>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all dependencies"
+                    checked={allChecked}
+                    onChange={toggleAll}
+                  />
                 </th>
                 <th scope="col">Module</th>
-                <th scope="col" className="col-owning">
-                  Owning module
-                </th>
-                <th scope="col" className="col-version">
-                  Required
-                </th>
-                <th scope="col" className="col-version">
-                  Selected
-                </th>
-                <th scope="col" className="col-update">
-                  Update
+                <th scope="col">Owning module</th>
+                <th scope="col">Required</th>
+                <th scope="col">Selected</th>
+                <th scope="col">Update</th>
+                <th scope="col" className="col-actions">
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
@@ -246,10 +281,7 @@ function TabButton({
       onClick={onClick}
     >
       {label}
-      {count > 0 && tone === 'warning' ? (
-        <span className="pill warning">{count}</span>
-      ) : null}
-      {count > 0 && tone !== 'warning' ? <span className="pill">{count}</span> : null}
+      {count > 0 ? <span className={`pill${tone === 'warning' ? ' warning' : ''}`}>{count}</span> : null}
     </button>
   );
 }
@@ -284,7 +316,9 @@ function Row({
         </span>
         {row.indirect ? <span className="chip">indirect</span> : null}
       </th>
-      <td className="col-owning mono muted">{row.owningModule}</td>
+      <td className="col-owning mono muted" title={row.owningModule}>
+        {row.owningModule}
+      </td>
       <td className="col-version mono muted" title={row.requiredVersion}>
         {row.requiredVersion}
       </td>
@@ -293,6 +327,33 @@ function Row({
       </td>
       <td className="col-update">
         <Candidate row={row} />
+      </td>
+      <td className="col-actions" onClick={(event) => event.stopPropagation()}>
+        <details className="row-menu">
+          <summary title="Module actions" aria-label={`Actions for ${row.path}`}>
+            <MoreIcon />
+          </summary>
+          <div className="menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(event) => {
+                void copyPath(row.path);
+                event.currentTarget.closest('details')?.removeAttribute('open');
+              }}
+            >
+              Copy module path
+            </button>
+            <a
+              role="menuitem"
+              href={`https://pkg.go.dev/${row.path}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open on pkg.go.dev
+            </a>
+          </div>
+        </details>
       </td>
     </tr>
   );
@@ -329,14 +390,25 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
 
   return (
     <div className="inspector-body">
-      <header className="inspector-header">
-        <h2 className="mono">
-          {row.path}
-          {row.indirect ? <span className="chip">indirect</span> : null}
-        </h2>
-        <p className="muted">
-          required by <span className="mono">{row.owningModule}</span>
-        </p>
+      <header className="inspector-head">
+        <div>
+          <h2 className="mono">
+            {row.path}
+            {row.indirect ? <span className="chip">indirect</span> : null}
+          </h2>
+          <p className="muted">
+            required by <span className="mono">{row.owningModule}</span>
+          </p>
+        </div>
+        <a
+          className="icon-button"
+          href={`https://pkg.go.dev/${row.path}`}
+          target="_blank"
+          rel="noreferrer"
+          title="Open on pkg.go.dev"
+        >
+          <ExternalLinkIcon />
+        </a>
       </header>
 
       <dl className="facts">
@@ -393,27 +465,45 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
         </button>
       </div>
 
-      {row.kind === 'major' ? (
-        <div className="callout">
-          <WarningIcon />
-          <div>
-            <strong>Next major version is a different module path</strong>
-            <p>
-              This is never applied as a plain version bump; it needs an import migration with a
-              diff you confirm.
-            </p>
-            <a href="#" onClick={(event) => event.preventDefault()}>
-              How migration works <ArrowRightIcon />
-            </a>
-          </div>
-        </div>
-      ) : null}
+      {row.advisories.map((advisory) => (
+        <AdvisoryCard key={advisory.id} advisory={advisory} />
+      ))}
 
       <p className="footnote mono">
-        Runs <code>go get</code> in the owning module with workspace mode off.
+        Runs <code>go get</code> in {row.owningModule} with workspace mode off.
       </p>
     </div>
   );
+}
+
+function AdvisoryCard({ advisory }: { readonly advisory: Advisory }): JSX.Element {
+  return (
+    <div className="callout">
+      <WarningIcon size={16} />
+      <div>
+        <strong>Advisory affects this module</strong>
+        <p className="mono">
+          {advisory.id} · {advisory.summary}
+          {advisory.fixedIn ? ` · fixed in ${advisory.fixedIn}` : ''}
+        </p>
+        <a
+          href={`https://pkg.go.dev/vuln/${advisory.id}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open advisory <ArrowRightIcon />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+async function copyPath(path: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(path);
+  } catch {
+    // The webview clipboard needs focus; failing silently beats a broken row.
+  }
 }
 
 function isString(value: string | undefined): value is string {

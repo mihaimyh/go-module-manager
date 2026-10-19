@@ -73,4 +73,15 @@ describe('version columns', () => {
     expect(direct?.indirect).toBe(false);
     expect(indirect?.indirect).toBe(true);
   });
+
+  it('attaches recorded advisories by module path, in every owning module', () => {
+    const model = loadFixtureWorkspace(fixtureRoot);
+    const samplerRows = model.rows.filter((row) => row.path === 'rsc.io/sampler');
+
+    expect(samplerRows).toHaveLength(2);
+    expect(samplerRows.every((row) => row.advisories.length === 1)).toBe(true);
+
+    const ids = new Set(samplerRows.flatMap((row) => row.advisories.map((a) => a.id)));
+    expect([...ids]).toEqual(['GO-0000-00001']);
+  });
 });

@@ -353,20 +353,90 @@ tbody th.col-module {
 }
 
 .col-check {
-  width: 32px;
+  width: 36px;
   padding-left: 12px;
 }
 
 .col-owning {
-  width: 22%;
+  width: 17.6%;
 }
 
 .col-version {
-  width: 12%;
+  width: 13.9%;
 }
 
 .col-update {
-  width: 22%;
+  width: 17.6%;
+}
+
+.col-actions {
+  width: 36px;
+  padding: 0;
+  text-align: center;
+  overflow: visible;
+  position: relative;
+}
+
+.row-menu {
+  display: inline-block;
+  position: relative;
+}
+
+.row-menu > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 auto;
+  border-radius: 2px;
+  color: var(--gmm-muted);
+  cursor: pointer;
+}
+
+.row-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.row-menu > summary:hover,
+.row-menu[open] > summary {
+  background: var(--vscode-toolbar-hoverBackground, #5a5d5e);
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: 26px;
+  z-index: 20;
+  min-width: 190px;
+  padding: 4px 0;
+  background: var(--vscode-menu-background, #252526);
+  border: 1px solid var(--vscode-menu-border, #454545);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  border-radius: 2px;
+}
+
+.menu button,
+.menu a {
+  display: block;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: none;
+  color: var(--vscode-menu-foreground, #cccccc);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu button:hover,
+.menu a:hover {
+  background: var(--vscode-menu-selectionBackground, #094771);
+  color: var(--vscode-menu-selectionForeground, #ffffff);
 }
 
 .mono {
@@ -465,6 +535,30 @@ tbody th.col-module {
   word-break: break-all;
 }
 
+.inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inspector-head > div {
+  min-width: 0;
+}
+
+.icon-button {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 2px;
+  color: var(--gmm-muted);
+  text-decoration: none;
+}
+
+.icon-button:hover {
+  background: var(--vscode-toolbar-hoverBackground, #5a5d5e);
+  color: var(--vscode-foreground, #cccccc);
+}
+
 .inspector-header p {
   margin: 4px 0 0;
   font-size: 11px;
@@ -560,6 +654,7 @@ tbody th.col-module {
 .footnote {
   margin: auto 0 0;
   padding-top: 22px;
+  border-top: 1px solid var(--gmm-border-soft);
   font-size: 10px;
   color: var(--gmm-muted);
 }

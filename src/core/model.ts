@@ -16,6 +16,12 @@ export interface ModuleFile {
   readonly requirements: readonly Requirement[];
 }
 
+export interface Advisory {
+  readonly id: string;
+  readonly summary: string;
+  readonly fixedIn?: string;
+}
+
 export interface DependencyRow {
   readonly id: string;
   readonly path: string;
@@ -26,6 +32,7 @@ export interface DependencyRow {
   readonly indirect: boolean;
   readonly candidate?: string;
   readonly kind: UpdateKind;
+  readonly advisories: readonly Advisory[];
 }
 
 export interface ModuleSummary {
@@ -41,6 +48,7 @@ export interface PanelModel {
 
 export interface AssembleOptions {
   readonly includePrereleases?: boolean;
+  readonly advisories?: ReadonlyMap<string, readonly Advisory[]>;
 }
 
 export function requirementFromGoMod(
@@ -95,6 +103,7 @@ export function assemblePanelModel(
         indirect: requirement.indirect,
         ...(candidate === undefined ? {} : { candidate }),
         kind: candidate === undefined ? 'none' : classifyUpdate(selectedVersion, candidate),
+        advisories: options.advisories?.get(requirement.path) ?? [],
       });
     }
   }

@@ -4,6 +4,7 @@ import { parseGoModJson, parseModuleList } from './goJson';
 import {
   assemblePanelModel,
   requirementFromGoMod,
+  type Advisory,
   type AssembleOptions,
   type ModuleFile,
   type PanelModel,
@@ -19,6 +20,7 @@ export function loadFixtureWorkspace(
 ): PanelModel {
   const files: ModuleFile[] = [];
   const buildLists = new Map<string, ReturnType<typeof parseModuleList>>();
+  const advisories = new Map<string, readonly Advisory[]>();
 
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) {
@@ -46,7 +48,18 @@ export function loadFixtureWorkspace(
       goModPath,
       parseModuleList(readFileSync(join(goldenDirectory, 'mod-list.json'), 'utf8')),
     );
+
+    const advisoryFile = join(goldenDirectory, 'advisories.json');
+    if (existsSync(advisoryFile)) {
+      const recorded = JSON.parse(readFileSync(advisoryFile, 'utf8')) as Record<
+        string,
+        Advisory[]
+      >;
+      for (const [path, list] of Object.entries(recorded)) {
+        advisories.set(path, list);
+      }
+    }
   }
 
-  return assemblePanelModel(files, buildLists, options);
+  return assemblePanelModel(files, buildLists, { ...options, advisories });
 }

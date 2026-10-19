@@ -66,3 +66,28 @@ export function PackageIcon({ size = 15 }: IconProps): JSX.Element {
     </svg>
   );
 }
+
+export function MoreIcon({ size = 14 }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="8" cy="3" r="1.4" />
+      <circle cx="8" cy="8" r="1.4" />
+      <circle cx="8" cy="13" r="1.4" />
+    </svg>
+  );
+}
+
+export function ExternalLinkIcon({ size = 14 }: IconProps): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M9 2.5h4.5V7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.5 2.5L7.5 8.5" stroke="currentColor" strokeLinecap="round" />
+      <path
+        d="M12 9.5V13a.5.5 0 01-.5.5h-8A.5.5 0 013 13V5a.5.5 0 01.5-.5H6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
