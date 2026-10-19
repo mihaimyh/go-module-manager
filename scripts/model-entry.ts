@@ -1,11 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mergeFailure, type Advisory, type PanelModel } from '../src/core/model';
+import { mergeFailure, type PanelModel } from '../src/core/model';
 import { resolveProjects } from '../src/core/updates';
+import {
+  matchAdvisories,
+  type AdvisoryDocument,
+  type AdvisorySource,
+} from '../src/ecosystems/go/advisory';
 import { createGoAdapter } from '../src/ecosystems/go/adapter';
 import type { GoRunner } from '../src/ecosystems/go/runner';
 
 const root = join(process.cwd(), 'test', 'fixtures', 'workspace');
+const advisoryFile = join(process.cwd(), 'test', 'fixtures', 'advisories', 'go.json');
 
 const GOLDEN: Record<string, string> = {
   'mod edit -json': 'mod-edit.json',
@@ -27,24 +33,12 @@ const recordedRunner: GoRunner = {
   },
 };
 
-/** Advisories are still fixture-only until the advisory pipeline lands. */
-function withRecordedAdvisories(model: PanelModel, file: string): PanelModel {
-  const recorded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, Advisory[]>;
-  return {
-    ...model,
-    rows: model.rows.map((row) => ({
-      ...row,
-      advisories: recorded[row.name] ?? [],
-    })),
-  };
-}
-
-const adapter = createGoAdapter(recordedRunner);
-const resolve = adapter.resolve;
-
-if (resolve === undefined) {
-  throw new Error('the Go adapter must expose resolve');
-}
+const documents = JSON.parse(readFileSync(advisoryFile, 'utf8')) as AdvisoryDocument[];
+const recordedAdvisories: AdvisorySource = {
+  async lookup(dependencies) {
+    return matchAdvisories(documents, dependencies);
+  },
+};
 
 /** A failure state for the harness, so the recovery banner can be reviewed. */
 function withFixtureFailure(model: PanelModel): PanelModel {
@@ -63,6 +57,13 @@ function withFixtureFailure(model: PanelModel): PanelModel {
   });
 }
 
+const adapter = createGoAdapter(recordedRunner, { advisories: recordedAdvisories });
+const resolve = adapter.resolve;
+
+if (resolve === undefined) {
+  throw new Error('the Go adapter must expose resolve');
+}
+
 void (async () => {
   const declared = await adapter.read(root);
   const resolved = await resolveProjects(
@@ -71,11 +72,12 @@ void (async () => {
     () => undefined,
     { concurrency: 2 },
   );
-  const model = withFixtureFailure(resolved);
+  const withAdvisories = (await adapter.advisories?.(resolved)) ?? resolved;
+  const model = withFixtureFailure(withAdvisories);
 
   process.stdout.write(
     JSON.stringify({
-      model: withRecordedAdvisories(model, join(root, 'a', '__golden__', 'advisories.json')),
+      model,
       progress: { done: model.projects.length, total: model.projects.length },
     }),
   );

@@ -170,6 +170,24 @@ export function mergeFailure(model: PanelModel, failure: ProjectFailure): PanelM
   return { ...model, projects: withFailures(model.projects, [failure]) };
 }
 
+/**
+ * Attaches matched advisories to rows whose version is known. A row that was
+ * never resolved has no version to match, so it keeps an empty list.
+ */
+export function withAdvisories(
+  model: PanelModel,
+  advisories: ReadonlyMap<string, readonly Advisory[]>,
+): PanelModel {
+  return {
+    ...model,
+    rows: model.rows.map((row) =>
+      row.resolvedVersion === undefined
+        ? row
+        : { ...row, advisories: advisories.get(row.name) ?? [] },
+    ),
+  };
+}
+
 /** A failed update stays on its row until the next read replaces the model. */
 export function mergeRowFailure(
   model: PanelModel,

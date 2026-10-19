@@ -15,6 +15,8 @@ interface LoadedModel {
 let current: LoadedModel | undefined;
 let refreshTimer: NodeJS.Timeout | undefined;
 let updating = false;
+/** Increments on every open or refresh so a stale cycle cannot paint the panel. */
+let cycle = 0;
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -39,6 +41,7 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
   }
 
   current = loaded;
+  const token = ++cycle;
   GmmPanel.show(context.extensionUri, loaded.model, {
     onRefresh: () => {
       void refresh(context, true);
@@ -58,7 +61,7 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
   });
 
   // Declared rows are already on screen; versions and candidates follow.
-  void fillUpdates(loaded, false);
+  void fillUpdates(loaded, false, token);
 }
 
 async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promise<void> {
@@ -68,8 +71,9 @@ async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promis
   }
 
   current = loaded;
+  const token = ++cycle;
   GmmPanel.update(loaded.model);
-  void fillUpdates(loaded, fresh);
+  void fillUpdates(loaded, fresh, token);
 }
 
 function recover(
@@ -369,7 +373,11 @@ async function tidyProjects(
   }
 }
 
-async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
+async function fillUpdates(
+  loaded: LoadedModel,
+  fresh: boolean,
+  token: number,
+): Promise<void> {
   const resolve = loaded.adapter.resolve;
   if (!resolve) {
     return;
@@ -378,13 +386,14 @@ async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
   const total = loaded.model.projects.length;
   GmmPanel.update(loaded.model, { done: 0, total });
 
-  await resolveProjects(
+  const resolved = await resolveProjects(
     loaded.model,
     (manifestPath, options) => resolve(manifestPath, options),
     (report) => {
-      if (current !== loaded) {
+      if (token !== cycle) {
         return;
       }
+      current = { ...loaded, model: report.model };
       GmmPanel.update(report.model, { done: report.done, total: report.total });
       if (report.failure) {
         void vscode.window.showWarningMessage(
@@ -394,6 +403,28 @@ async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {
     },
     { concurrency: 4, fresh },
   );
+
+  if (token !== cycle) {
+    return;
+  }
+
+  const attachAdvisories = loaded.adapter.advisories;
+  if (attachAdvisories === undefined) {
+    return;
+  }
+
+  try {
+    const withAdvisories = await attachAdvisories(resolved);
+    if (token !== cycle) {
+      return;
+    }
+    current = { ...loaded, model: withAdvisories };
+    GmmPanel.update(withAdvisories);
+  } catch (error) {
+    void vscode.window.showWarningMessage(
+      `GMM: advisory lookup failed. ${messageOf(error)}`,
+    );
+  }
 }
 
 /**

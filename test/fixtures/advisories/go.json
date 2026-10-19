@@ -1,0 +1,13 @@
+[
+  {
+    "id": "GO-0000-00001",
+    "summary": "reachable in sampler.DefaultText",
+    "ranges": [
+      {
+        "module": "rsc.io/sampler",
+        "introduced": "0",
+        "fixed": "v1.99.99"
+      }
+    ]
+  }
+]

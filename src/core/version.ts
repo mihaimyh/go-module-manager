@@ -34,6 +34,77 @@ export function isPrerelease(version: string): boolean {
 }
 
 /**
+ * SemVer precedence, including prerelease ordering. Unparseable versions
+ * compare equal; callers that need certainty check `parseVersion` first.
+ */
+export function compareVersions(left: string, right: string): number {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  if (!a || !b) {
+    return 0;
+  }
+  if (a.major !== b.major) {
+    return a.major - b.major;
+  }
+  if (a.minor !== b.minor) {
+    return a.minor - b.minor;
+  }
+  if (a.patch !== b.patch) {
+    return a.patch - b.patch;
+  }
+  return comparePrerelease(a.prerelease, b.prerelease);
+}
+
+function comparePrerelease(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  // A release outranks any prerelease of the same version.
+  if (left === '') {
+    return 1;
+  }
+  if (right === '') {
+    return -1;
+  }
+
+  const a = left.split('.');
+  const b = right.split('.');
+  const length = Math.max(a.length, b.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const ai = a[index];
+    const bi = b[index];
+    if (ai === undefined) {
+      return -1;
+    }
+    if (bi === undefined) {
+      return 1;
+    }
+
+    const aNumeric = /^\d+$/.test(ai);
+    const bNumeric = /^\d+$/.test(bi);
+    if (aNumeric && bNumeric) {
+      const difference = Number(ai) - Number(bi);
+      if (difference !== 0) {
+        return difference;
+      }
+      continue;
+    }
+    if (aNumeric) {
+      return -1;
+    }
+    if (bNumeric) {
+      return 1;
+    }
+    if (ai !== bi) {
+      return ai < bi ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
+/**
  * Classifies a move between two versions of the same dependency.
  * A major-version path change is never an update, so it cannot appear here.
  * Ecosystems where a resolved version can be a commit classify that case

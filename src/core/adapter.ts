@@ -42,6 +42,8 @@ export interface EcosystemAdapter {
   undo?(manifestPath: string): Promise<boolean>;
   /** Tidies one project; only ever called from its own confirmed action. */
   tidy?(manifestPath: string): Promise<void>;
+  /** Attaches advisories for the resolved versions in the model. */
+  advisories?(model: PanelModel): Promise<PanelModel>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

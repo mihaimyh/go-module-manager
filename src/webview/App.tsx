@@ -299,6 +299,11 @@ export function App({
 
       <main className="workspace">
         <section className="list" aria-label="Dependencies">
+          {tab === 'vulnerabilities' ? (
+            <p className="scan-note">
+              Reachability has not been scanned. These are module-level advisories.
+            </p>
+          ) : null}
           <table>
             <colgroup>
               <col className="col-check" />

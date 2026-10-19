@@ -1,9 +1,0 @@
-{
-  "rsc.io/sampler": [
-    {
-      "id": "GO-0000-00001",
-      "summary": "reachable in sampler.DefaultText",
-      "fixedIn": "v1.99.99"
-    }
-  ]
-}

@@ -3,6 +3,7 @@ import {
   assemblePanelModel,
   mergeResolution,
   mergeRowFailure,
+  withAdvisories,
   type Advisory,
   type DependencyInput,
   type ProjectInput,
@@ -241,5 +242,27 @@ describe('mergeRowFailure', () => {
       /permission denied/,
     );
     expect(model.rows.find((row) => row.name === 'rsc.io/sampler')?.failure).toBeUndefined();
+  });
+});
+
+describe('withAdvisories', () => {
+  it('attaches advisory matches only to rows with a resolved version', () => {
+    const base = assemblePanelModel(
+      project([{ name: 'rsc.io/sampler', version: 'v1.3.0' }]),
+      new Map(),
+    );
+    const matches = new Map([
+      ['rsc.io/sampler', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
+    ]);
+
+    const unresolved = withAdvisories(base, matches);
+    expect(unresolved.rows[0]?.advisories).toEqual([]);
+
+    const resolved = mergeResolution(base, {
+      manifestPath: MANIFEST,
+      dependencies: [{ name: 'rsc.io/sampler', version: 'v1.3.0' }],
+    });
+    const attached = withAdvisories(resolved, matches);
+    expect(attached.rows[0]?.advisories).toHaveLength(1);
   });
 });
