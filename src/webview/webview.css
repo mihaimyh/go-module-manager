@@ -804,6 +804,83 @@ tbody th.col-module .chip {
   word-break: break-all;
 }
 
+.why-row {
+  flex-direction: column;
+  align-items: stretch !important;
+}
+
+.why-row dd {
+  text-align: left;
+}
+
+.why-text {
+  margin: 0;
+  padding: 8px;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--gmm-mono);
+  font-size: 11px;
+  background: var(--vscode-textCodeBlock-background, #1e1e1e);
+  border: 1px solid var(--gmm-border-soft);
+  border-radius: 2px;
+}
+
+.release-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.release-notes a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+}
+
+.impact {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+  font-size: 11px;
+}
+
+.consolidate {
+  padding: 8px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.consolidate-group h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.consolidate-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.consolidate-row {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.consolidate-row:hover,
+.consolidate-row.selected {
+  background: var(--gmm-hover);
+}
+
 .path-code {
   display: inline-block;
   padding: 0 5px;

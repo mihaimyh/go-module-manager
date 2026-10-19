@@ -30,6 +30,22 @@ export interface UpdateResult {
   readonly message?: string;
 }
 
+export interface PreviewImpact {
+  readonly name: string;
+  readonly kind: 'lowered' | 'removed' | 'raised';
+  readonly from?: string;
+  readonly to?: string;
+}
+
+export interface PreviewResult {
+  readonly manifestPath: string;
+  readonly name: string;
+  readonly version: string;
+  readonly status: 'ready' | 'failed';
+  readonly impact: readonly PreviewImpact[];
+  readonly message?: string;
+}
+
 /**
  * The single seam between the panel and a dependency ecosystem.
  *
@@ -63,6 +79,10 @@ export interface EcosystemAdapter {
   installScanner?(): Promise<void>;
   /** Every tagged version of a module, newest first, for the version picker. */
   versions?(modulePath: string): Promise<readonly string[]>;
+  /** Why the owning project needs this module: `go mod why -m`. */
+  why?(manifestPath: string, name: string): Promise<string>;
+  /** Dry-run a version move (especially a downgrade) and restore the files. */
+  preview?(request: UpdateRequest): Promise<PreviewResult>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

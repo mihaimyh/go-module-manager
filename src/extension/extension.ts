@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { EcosystemAdapter, UpdateRequest, UpdateResult } from '../core/adapter';
-import type { DependencySelection, RecoveryAction } from '../core/messages';
+import type { DependencySelection, RecoveryAction, ReleaseNotes } from '../core/messages';
 import {
   advisoryTargets,
   mergeFailure,
@@ -22,6 +22,7 @@ import { failureKindFor } from '../ecosystems/go/errors';
 import { requireLineNumber } from '../ecosystems/go/requireLine';
 import { planBulkUpdate, shouldRetryFailedGroup } from '../core/bulk';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
+import { fetchReleaseNotes } from '../ecosystems/go/releases';
 import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
 import { FileAdvisoryCache } from './advisoryCache';
 import type { PanelHandlers } from './handlers';
@@ -44,6 +45,7 @@ let environmentLogged = false;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 let session = new AbortController();
+const releaseNotesCache = new Map<string, Promise<ReleaseNotes | undefined>>();
 
 export function activate(context: vscode.ExtensionContext): void {
   output = vscode.window.createOutputChannel('Go Module Manager');
@@ -112,6 +114,15 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     },
     onOpenManifest: (manifestPath, name) => {
       void openManifest(manifestPath, name);
+    },
+    onWhy: (manifestPath, name) => {
+      void requestWhy(manifestPath, name);
+    },
+    onReleaseNotes: (modulePath, version) => {
+      void requestReleaseNotes(modulePath, version);
+    },
+    onPreview: (manifestPath, name, version) => {
+      void requestPreview(manifestPath, name, version);
     },
   };
 }
@@ -734,6 +745,72 @@ async function requestVersions(modulePath: string): Promise<void> {
     // Keep the versions the panel already knows; listing is optional.
     GmmPanel.postVersions(modulePath, []);
   }
+}
+
+async function requestWhy(manifestPath: string, name: string): Promise<void> {
+  const why = current?.adapter.why;
+  if (why === undefined) {
+    return;
+  }
+  try {
+    GmmPanel.postWhy(manifestPath, name, { text: await why(manifestPath, name) });
+  } catch (error) {
+    GmmPanel.postWhy(manifestPath, name, { error: messageOf(error) });
+  }
+}
+
+async function requestReleaseNotes(modulePath: string, version: string): Promise<void> {
+  const key = `${modulePath}@${version}`;
+  const cached = releaseNotesCache.get(key);
+  const pending =
+    cached ??
+    fetchReleaseNotes(modulePath, version, fetchGitHubJson);
+  if (cached === undefined) {
+    releaseNotesCache.set(key, pending);
+    void pending.catch(() => releaseNotesCache.delete(key));
+  }
+  GmmPanel.postReleaseNotes(modulePath, version, await pending);
+}
+
+async function requestPreview(
+  manifestPath: string,
+  name: string,
+  version: string,
+): Promise<void> {
+  const preview = current?.adapter.preview;
+  if (preview === undefined) {
+    return;
+  }
+  try {
+    await withBusy('Previewing impact…', async () => {
+      GmmPanel.postPreview(
+        await preview({ manifestPath, changes: [{ name, version }], snapshot: false }),
+      );
+    });
+  } catch (error) {
+    GmmPanel.postPreview({
+      manifestPath,
+      name,
+      version,
+      status: 'failed',
+      impact: [],
+      message: messageOf(error),
+    });
+  }
+}
+
+async function fetchGitHubJson(url: string): Promise<unknown> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'go-module-manager',
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+  return response.json();
 }
 
 async function installScannerCli(): Promise<void> {

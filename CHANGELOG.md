@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.18
+
+### Added
+
+- Inspector runs `go mod why -m` for the selected dependency and shows the toolchain's explanation.
+- GitHub release notes for the chosen version on `github.com` modules (session-cached; muted when missing).
+- Downgrade impact preview: dry-run `go get`, list lowered/dropped requirements, then confirm into the normal update/undo flow.
+- Consolidate tab groups divergent module paths by owning module and selected version (read-only).
+
 ## 0.1.17
 
 ### Added

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
+import type { PreviewResult } from '../core/adapter';
+import type {
+  DependencySelection,
+  RecoveryAction,
+  ReleaseNotes,
+  ResolveProgress,
+} from '../core/messages';
 import { advisoryFixOffer, affectedRangeText } from '../core/advisoryAction';
-import { divergentModulePaths } from '../core/consolidate';
+import { groupedDivergence } from '../core/consolidate';
 import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import { sortRows, type SortKey, type SortState } from '../core/sort';
@@ -61,6 +67,12 @@ interface AppProps {
   readonly onVersions: (modulePath: string) => void;
   readonly onOpenPanel: () => void;
   readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly why: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
+  readonly onWhy: (manifestPath: string, name: string) => void;
+  readonly releaseNotes: Readonly<Record<string, ReleaseNotes | null>>;
+  readonly onReleaseNotes: (modulePath: string, version: string) => void;
+  readonly preview?: PreviewResult;
+  readonly onPreview: (manifestPath: string, name: string, version: string) => void;
 }
 
 export function App({
@@ -80,6 +92,12 @@ export function App({
   onVersions,
   onOpenPanel,
   onOpenManifest,
+  why,
+  onWhy,
+  releaseNotes,
+  onReleaseNotes,
+  preview,
+  onPreview,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>(() =>
     window.location.hash === '#vulnerabilities'
@@ -136,15 +154,15 @@ export function App({
   const scopedAdvisoryIds = new Set(
     scopedRows.flatMap((row) => row.advisories.map((advisory) => advisory.id)),
   );
-  const divergent = divergentModulePaths(scopedRows);
-  const scopedDivergent = scopedRows.filter((row) => divergent.has(row.name));
+  const consolidateGroups = groupedDivergence(scopedRows);
+  const divergentCount = consolidateGroups.length;
   const tabRows =
     tab === 'updates'
       ? scopedUpdates
       : tab === 'vulnerabilities'
         ? scopedAdvisoryRows
         : tab === 'consolidate'
-          ? scopedDivergent
+          ? consolidateGroups.flatMap((group) => group.rows)
           : scopedRows;
 
   const hiddenByDirect = !directOnly
@@ -380,7 +398,7 @@ export function App({
         />
         <TabButton
           label="Consolidate"
-          count={divergent.size}
+          count={divergentCount}
           active={tab === 'consolidate'}
           onClick={() => setTab('consolidate')}
         />
@@ -477,6 +495,15 @@ export function App({
               </button>
             </div>
           ) : null}
+          {tab === 'consolidate' ? (
+            visible.length === 0 ? null : (
+              <ConsolidateGroups
+                groups={groupedDivergence(visible)}
+                activeId={activeId}
+                onSelect={setSelectedId}
+              />
+            )
+          ) : (
           <table>
             <thead>
               <tr>
@@ -543,6 +570,7 @@ export function App({
               ))}
             </tbody>
           </table>
+          )}
           {visible.length === 0 ? (
             <EmptyState
               tab={tab}
@@ -565,6 +593,12 @@ export function App({
               onVersions={onVersions}
               onUpdate={onUpdate}
               onOpenManifest={onOpenManifest}
+              why={why[`${selected.manifestPath}#${selected.name}`]}
+              onWhy={onWhy}
+              releaseNotes={releaseNotes}
+              onReleaseNotes={onReleaseNotes}
+              preview={preview}
+              onPreview={onPreview}
             />
           ) : (
             <p className="empty">Select a module.</p>
@@ -778,6 +812,43 @@ function UpdateCell({
   return <span className="mono candidate">{row.candidate}</span>;
 }
 
+function ConsolidateGroups({
+  groups,
+  activeId,
+  onSelect,
+}: {
+  readonly groups: readonly { readonly name: string; readonly rows: readonly DependencyRow[] }[];
+  readonly activeId: string | undefined;
+  readonly onSelect: (id: string) => void;
+}): JSX.Element {
+  return (
+    <div className="consolidate">
+      {groups.map((group) => (
+        <section key={group.name} className="consolidate-group">
+          <h3 className="mono">{group.name}</h3>
+          <ul>
+            {group.rows.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className={row.id === activeId ? 'consolidate-row selected' : 'consolidate-row'}
+                  onClick={() => onSelect(row.id)}
+                >
+                  <span className="mono">{row.project}</span>
+                  <span className="mono candidate">{row.resolvedVersion}</span>
+                  {row.declaredVersion === row.resolvedVersion ? null : (
+                    <span className="muted">required {row.declaredVersion}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function EmptyState({
   tab,
   query,
@@ -847,6 +918,12 @@ function Inspector({
   onVersions,
   onUpdate,
   onOpenManifest,
+  why,
+  onWhy,
+  releaseNotes,
+  onReleaseNotes,
+  preview,
+  onPreview,
 }: {
   readonly row: DependencyRow;
   readonly versions: readonly string[] | undefined;
@@ -855,6 +932,12 @@ function Inspector({
   readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
   readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly why?: { readonly text?: string; readonly error?: string };
+  readonly onWhy: (manifestPath: string, name: string) => void;
+  readonly releaseNotes: Readonly<Record<string, ReleaseNotes | null>>;
+  readonly onReleaseNotes: (modulePath: string, version: string) => void;
+  readonly preview?: PreviewResult;
+  readonly onPreview: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
   const [includePrereleases, setIncludePrereleases] = useState(false);
 
@@ -862,7 +945,8 @@ function Inspector({
     if (row.replacement === undefined) {
       onVersions(row.name);
     }
-  }, [row.name, row.replacement]);
+    onWhy(row.manifestPath, row.name);
+  }, [row.name, row.manifestPath, row.replacement]);
 
   const known = [row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString);
   const options = pickerVersions(
@@ -874,7 +958,26 @@ function Inspector({
   const fallback = options[0] ?? row.declaredVersion;
   const [version, setVersion] = useState(fallback);
   const chosen = options.includes(version) ? version : fallback;
-  const apply = versionApplyOffer(row.resolvedVersion, chosen, { includePrereleases });
+  const matchingPreview =
+    preview !== undefined &&
+    preview.manifestPath === row.manifestPath &&
+    preview.name === row.name &&
+    preview.version === chosen
+      ? preview
+      : undefined;
+  const apply = versionApplyOffer(row.resolvedVersion, chosen, {
+    includePrereleases,
+    allowDowngrade: matchingPreview?.status === 'ready',
+  });
+  const needsPreview =
+    row.resolvedVersion !== undefined && compareVersions(chosen, row.resolvedVersion) < 0;
+  const notes = releaseNotes[`${row.name}@${chosen}`];
+
+  useEffect(() => {
+    if (row.name.startsWith('github.com/')) {
+      onReleaseNotes(row.name, chosen);
+    }
+  }, [row.name, chosen]);
 
   return (
     <div className="inspector-body">
@@ -939,6 +1042,14 @@ function Inspector({
           <dt>Type</dt>
           <dd className="muted">{row.transitive ? 'indirect dependency' : 'direct dependency'}</dd>
         </div>
+        <div className="why-row">
+          <dt>Why</dt>
+          <dd>
+            <pre className="why-text">
+              {why?.error ?? why?.text ?? 'Looking up go mod why…'}
+            </pre>
+          </dd>
+        </div>
         {row.replacement === undefined ? null : (
           <div>
             <dt>Replaced by</dt>
@@ -980,6 +1091,22 @@ function Inspector({
         </div>
       </dl>
 
+      {row.name.startsWith('github.com/') ? (
+        notes === undefined ? (
+          <p className="muted version-note">Looking up release notes…</p>
+        ) : notes === null ? (
+          <p className="muted version-note">No release notes for this version.</p>
+        ) : (
+          <div className="release-notes">
+            <strong>{notes.title}</strong>
+            {notes.body === '' ? null : <pre className="why-text">{notes.body}</pre>}
+            <a href={notes.url} target="_blank" rel="noreferrer">
+              Open release
+            </a>
+          </div>
+        )
+      ) : null}
+
       {row.replacement === undefined ? (
         <>
           <div className="controls">
@@ -993,19 +1120,31 @@ function Inspector({
               onChange={setVersion}
               grow
             />
-            <button
-              type="button"
-              className="button primary"
-              disabled={busy || !apply.allowed}
-              title={
-                apply.allowed
-                  ? `Run go get ${row.name}@${chosen}`
-                  : apply.reason
-              }
-              onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
-            >
-              Update
-            </button>
+            {needsPreview && matchingPreview?.status !== 'ready' ? (
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy}
+                title={`Preview go get ${row.name}@${chosen}`}
+                onClick={() => onPreview(row.manifestPath, row.name, chosen)}
+              >
+                Preview impact
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button primary"
+                disabled={busy || !apply.allowed}
+                title={
+                  apply.allowed
+                    ? `Run go get ${row.name}@${chosen}`
+                    : apply.reason
+                }
+                onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
+              >
+                {needsPreview ? 'Confirm downgrade' : 'Update'}
+              </button>
+            )}
           </div>
           <label className="checkbox version-prerelease">
             <input
@@ -1015,7 +1154,21 @@ function Inspector({
             />
             Show prereleases
           </label>
-          {apply.allowed || chosen === row.resolvedVersion ? null : (
+          {matchingPreview?.status === 'ready' && matchingPreview.impact.length > 0 ? (
+            <ul className="impact">
+              {matchingPreview.impact.map((entry) => (
+                <li key={entry.name} className="mono">
+                  {entry.kind === 'removed'
+                    ? `drops ${entry.name} ${entry.from ?? ''}`
+                    : `${entry.kind} ${entry.name} ${entry.from ?? ''} → ${entry.to ?? ''}`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {matchingPreview?.status === 'failed' ? (
+            <p className="version-note muted">{matchingPreview.message}</p>
+          ) : null}
+          {apply.allowed || chosen === row.resolvedVersion || needsPreview ? null : (
             <p className="version-note muted">{apply.reason}</p>
           )}
 

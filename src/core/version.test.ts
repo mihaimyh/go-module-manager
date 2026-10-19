@@ -69,11 +69,14 @@ describe('versionApplyOffer', () => {
     });
   });
 
-  it('refuses a downgrade', () => {
+  it('refuses a downgrade until a preview is accepted', () => {
     expect(versionApplyOffer('v1.5.2', 'v1.5.1')).toEqual({
       allowed: false,
-      reason: 'Downgrades need an impact preview, which is not in this release.',
+      reason: 'Preview the impact before downgrading.',
     });
+    expect(
+      versionApplyOffer('v1.5.2', 'v1.5.1', { allowDowngrade: true }),
+    ).toEqual({ allowed: true });
   });
 
   it('hides a prerelease until asked', () => {

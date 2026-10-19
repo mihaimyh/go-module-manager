@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import type { HostToWebview, ResolveProgress } from '../core/messages';
+import type { PreviewResult } from '../core/adapter';
+import type { HostToWebview, ReleaseNotes, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import type { PanelHandlers } from './handlers';
 import { renderWebviewHtml } from './webviewHtml';
@@ -91,6 +92,31 @@ export class GmmPanel {
 
   static postVersionsLoading(modulePath: string): void {
     GmmPanel.send({ type: 'versions-loading', modulePath });
+  }
+
+  static postWhy(
+    manifestPath: string,
+    name: string,
+    payload: { readonly text?: string; readonly error?: string },
+  ): void {
+    GmmPanel.send({ type: 'why', manifestPath, name, ...payload });
+  }
+
+  static postReleaseNotes(
+    modulePath: string,
+    version: string,
+    notes: ReleaseNotes | undefined,
+  ): void {
+    GmmPanel.send({
+      type: 'release-notes',
+      modulePath,
+      version,
+      ...(notes === undefined ? {} : { notes }),
+    });
+  }
+
+  static postPreview(result: PreviewResult): void {
+    GmmPanel.send({ type: 'preview', result });
   }
 
   /** A label means work started; no label means it finished. */

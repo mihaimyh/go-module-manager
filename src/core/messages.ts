@@ -1,4 +1,11 @@
+import type { PreviewResult } from './adapter';
 import type { PanelModel } from './model';
+
+export interface ReleaseNotes {
+  readonly title: string;
+  readonly body: string;
+  readonly url: string;
+}
 
 /** How much of the background update lookup has finished. */
 export interface ResolveProgress {
@@ -20,7 +27,21 @@ export type HostToWebview =
       readonly type: 'versions';
       readonly modulePath: string;
       readonly versions: readonly string[];
-    };
+    }
+  | {
+      readonly type: 'why';
+      readonly manifestPath: string;
+      readonly name: string;
+      readonly text?: string;
+      readonly error?: string;
+    }
+  | {
+      readonly type: 'release-notes';
+      readonly modulePath: string;
+      readonly version: string;
+      readonly notes?: ReleaseNotes;
+    }
+  | { readonly type: 'preview'; readonly result: PreviewResult };
 
 export type RecoveryAction =
   | 'repair'
@@ -70,4 +91,20 @@ export type WebviewToHost =
       readonly type: 'open-manifest';
       readonly manifestPath: string;
       readonly name: string;
+    }
+  | {
+      readonly type: 'why';
+      readonly manifestPath: string;
+      readonly name: string;
+    }
+  | {
+      readonly type: 'release-notes';
+      readonly modulePath: string;
+      readonly version: string;
+    }
+  | {
+      readonly type: 'preview';
+      readonly manifestPath: string;
+      readonly name: string;
+      readonly version: string;
     };

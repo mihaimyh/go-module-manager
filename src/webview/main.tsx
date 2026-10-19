@@ -1,6 +1,14 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { DependencySelection, HostToWebview, RecoveryAction, ResolveProgress, WebviewToHost } from '../core/messages';
+import type { PreviewResult } from '../core/adapter';
+import type {
+  DependencySelection,
+  HostToWebview,
+  RecoveryAction,
+  ReleaseNotes,
+  ResolveProgress,
+  WebviewToHost,
+} from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { App } from './App';
 import { vscode } from './vscode';
@@ -12,6 +20,9 @@ interface ViewState {
   readonly busy?: string;
   readonly versions?: Readonly<Record<string, readonly string[]>>;
   readonly versionsLoading?: Readonly<Record<string, boolean>>;
+  readonly why?: Readonly<Record<string, { readonly text?: string; readonly error?: string }>>;
+  readonly releaseNotes?: Readonly<Record<string, ReleaseNotes | null>>;
+  readonly preview?: PreviewResult;
 }
 
 function Root(): JSX.Element {
@@ -45,6 +56,32 @@ function Root(): JSX.Element {
           versions: { ...current.versions, [modulePath]: versions },
           versionsLoading: { ...current.versionsLoading, [modulePath]: false },
         }));
+      }
+      if (message.type === 'why') {
+        const { manifestPath, name, text, error } = message;
+        setState((current) => ({
+          ...current,
+          why: {
+            ...current.why,
+            [`${manifestPath}#${name}`]: {
+              ...(text === undefined ? {} : { text }),
+              ...(error === undefined ? {} : { error }),
+            },
+          },
+        }));
+      }
+      if (message.type === 'release-notes') {
+        const { modulePath, version, notes } = message;
+        setState((current) => ({
+          ...current,
+          releaseNotes: {
+            ...current.releaseNotes,
+            [`${modulePath}@${version}`]: notes ?? null,
+          },
+        }));
+      }
+      if (message.type === 'preview') {
+        setState((current) => ({ ...current, preview: message.result }));
       }
     };
     window.addEventListener('message', onMessage);
@@ -103,6 +140,21 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onWhy = (manifestPath: string, name: string): void => {
+    const message: WebviewToHost = { type: 'why', manifestPath, name };
+    vscode.postMessage(message);
+  };
+
+  const onReleaseNotes = (modulePath: string, version: string): void => {
+    const message: WebviewToHost = { type: 'release-notes', modulePath, version };
+    vscode.postMessage(message);
+  };
+
+  const onPreview = (manifestPath: string, name: string, version: string): void => {
+    const message: WebviewToHost = { type: 'preview', manifestPath, name, version };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -114,6 +166,12 @@ function Root(): JSX.Element {
       onVersions={onVersions}
       onOpenPanel={onOpenPanel}
       onOpenManifest={onOpenManifest}
+      why={state.why ?? {}}
+      onWhy={onWhy}
+      releaseNotes={state.releaseNotes ?? {}}
+      onReleaseNotes={onReleaseNotes}
+      preview={state.preview}
+      onPreview={onPreview}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { divergentModulePaths } from './consolidate';
+import { divergentModulePaths, groupedDivergence } from './consolidate';
 import type { DependencyRow } from './model';
 
 function row(name: string, project: string, resolved: string | undefined): DependencyRow {
@@ -35,5 +35,22 @@ describe('divergentModulePaths', () => {
     ];
 
     expect(divergentModulePaths(rows).size).toBe(0);
+  });
+});
+
+describe('groupedDivergence', () => {
+  it('groups divergent rows by module path', () => {
+    const rows = [
+      row('rsc.io/quote', 'example.com/b', 'v1.5.2'),
+      row('rsc.io/quote', 'example.com/a', 'v1.5.1'),
+      row('rsc.io/sampler', 'example.com/a', 'v1.3.0'),
+    ];
+
+    const groups = groupedDivergence(rows);
+    expect(groups.map((group) => group.name)).toEqual(['rsc.io/quote']);
+    expect(groups[0]?.rows.map((entry) => [entry.project, entry.resolvedVersion])).toEqual([
+      ['example.com/a', 'v1.5.1'],
+      ['example.com/b', 'v1.5.2'],
+    ]);
   });
 });

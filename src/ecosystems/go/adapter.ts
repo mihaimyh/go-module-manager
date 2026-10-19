@@ -8,8 +8,10 @@ import { createProjectResolver } from './resolve';
 import { createExecGoRunner, type GoRunner } from './runner';
 import { installScanner, scanProject } from './scan';
 import { tidyProject } from './tidy';
+import { previewUpdate } from './preview';
 import { createUpdater } from './update';
 import { createVersionsFetcher } from './versions';
+import { whyModule } from './why';
 
 export interface GoAdapterOptions {
   readonly advisories?: AdvisorySource;
@@ -39,6 +41,8 @@ export function createGoAdapter(
     scan: (manifestPath) => scanProject(manifestPath, runner),
     installScanner: () => installScanner(process.cwd(), runner),
     versions: (modulePath) => versions.fetch(modulePath),
+    why: (manifestPath, name) => whyModule(manifestPath, name, runner),
+    preview: (request) => previewUpdate(request, runner),
     toolchainUrl: 'https://go.dev/dl/',
     ...(source === undefined
       ? {}

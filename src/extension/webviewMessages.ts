@@ -114,6 +114,34 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
         target.handlers.onOpenManifest(message.manifestPath, message.name);
       }
       return;
+    case 'why':
+      if (
+        typeof message.manifestPath === 'string' &&
+        typeof message.name === 'string' &&
+        model.rows.some(
+          (row) => row.manifestPath === message.manifestPath && row.name === message.name,
+        )
+      ) {
+        target.handlers.onWhy(message.manifestPath, message.name);
+      }
+      return;
+    case 'release-notes':
+      if (typeof message.modulePath === 'string' && typeof message.version === 'string') {
+        target.handlers.onReleaseNotes(message.modulePath, message.version);
+      }
+      return;
+    case 'preview':
+      if (
+        typeof message.manifestPath === 'string' &&
+        typeof message.name === 'string' &&
+        typeof message.version === 'string' &&
+        model.rows.some(
+          (row) => row.manifestPath === message.manifestPath && row.name === message.name,
+        )
+      ) {
+        target.handlers.onPreview(message.manifestPath, message.name, message.version);
+      }
+      return;
   }
 }
 

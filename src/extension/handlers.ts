@@ -12,4 +12,7 @@ export interface PanelHandlers {
   readonly onVersions: (modulePath: string) => void;
   readonly onOpenPanel: () => void;
   readonly onOpenManifest: (manifestPath: string, name: string) => void;
+  readonly onWhy: (manifestPath: string, name: string) => void;
+  readonly onReleaseNotes: (modulePath: string, version: string) => void;
+  readonly onPreview: (manifestPath: string, name: string, version: string) => void;
 }

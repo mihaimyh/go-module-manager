@@ -116,21 +116,23 @@ export type VersionApplyOffer =
 
 /**
  * Whether the inspector may run `go get` for the chosen version. Downgrades
- * rewrite the graph and stay out of this release; prereleases stay hidden
- * until the user asks.
+ * need an impact preview first; prereleases stay hidden until the user asks.
  */
 export function versionApplyOffer(
   resolved: string | undefined,
   chosen: string,
-  options: { readonly includePrereleases?: boolean } = {},
+  options: { readonly includePrereleases?: boolean; readonly allowDowngrade?: boolean } = {},
 ): VersionApplyOffer {
   if (resolved !== undefined && chosen === resolved) {
     return { allowed: false, reason: 'Already resolved at this version' };
   }
   if (resolved !== undefined && compareVersions(chosen, resolved) < 0) {
+    if (options.allowDowngrade === true) {
+      return { allowed: true };
+    }
     return {
       allowed: false,
-      reason: 'Downgrades need an impact preview, which is not in this release.',
+      reason: 'Preview the impact before downgrading.',
     };
   }
   if (options.includePrereleases !== true && isPrerelease(chosen)) {
