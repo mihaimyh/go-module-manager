@@ -14,6 +14,7 @@ esbuild.mjs
 tsconfig.json
 package-lock.json
 GLOSSARY.md
+AGENTS.md
 *.vsix
 dist/harness.html
 dist/model-entry.cjs
