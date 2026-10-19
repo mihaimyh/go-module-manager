@@ -158,6 +158,7 @@ function toSelection(value: unknown, model: PanelModel): DependencySelection[] {
   }
 
   const selection: DependencySelection[] = [];
+  const seen = new Set<string>();
   for (const entry of value) {
     if (typeof entry !== 'object' || entry === null) {
       continue;
@@ -166,10 +167,15 @@ function toSelection(value: unknown, model: PanelModel): DependencySelection[] {
     if (typeof manifestPath !== 'string' || typeof name !== 'string') {
       continue;
     }
+    const key = `${manifestPath}#${name}`;
+    if (seen.has(key)) {
+      continue;
+    }
     const known = model.rows.some(
       (row) => row.manifestPath === manifestPath && row.name === name,
     );
     if (known) {
+      seen.add(key);
       selection.push({ manifestPath, name });
     }
   }
@@ -187,7 +193,8 @@ function toManifests(value: unknown, model: PanelModel): string[] {
   );
 }
 
-function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {  const nonce = randomBytes(16).toString('base64');
+function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+  const nonce = randomBytes(16).toString('base64');
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'),
   );

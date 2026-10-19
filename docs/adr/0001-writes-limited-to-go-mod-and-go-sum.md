@@ -1,6 +1,6 @@
 # An update writes only `go.mod` and `go.sum`
 
-An update runs exactly `go get <path>@<version>` and nothing else. `go mod tidy` is never chained onto it, builds and tests are never run, and `.go` files are edited only by a separate major-version migration that shows a diff and requires confirmation.
+An update runs exactly one `go get` per project — `<path>@<version>` for a single row, or several pairs for a selected group — and nothing else. `go mod tidy` is never chained onto it, builds and tests are never run, and `.go` files are edited only by a separate major-version migration that shows a diff and requires confirmation.
 
 The alternative — a NuGet-style one-click that also tidies — silently changes code the user did not ask to change. `go mod tidy` removes `require` lines for modules whose packages are not imported *yet*, which is exactly the state of a repository mid-feature. A dependency tool that surprises its user loses trust once and never gets it back.
 

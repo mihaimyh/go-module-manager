@@ -1,21 +1,12 @@
+import type { UpdateRequest } from './adapter';
 import type { DependencyRow } from './model';
-
-export interface PlannedChange {
-  readonly name: string;
-  readonly version: string;
-}
-
-export interface UpdateGroup {
-  readonly manifestPath: string;
-  readonly changes: readonly PlannedChange[];
-}
 
 /**
  * Groups the selected rows by owning manifest and targets each one's candidate.
  * Rows with no candidate have nothing to move to and are dropped.
  */
-export function planBulkUpdate(rows: readonly DependencyRow[]): readonly UpdateGroup[] {
-  const byManifest = new Map<string, PlannedChange[]>();
+export function planBulkUpdate(rows: readonly DependencyRow[]): readonly UpdateRequest[] {
+  const byManifest = new Map<string, { name: string; version: string }[]>();
 
   for (const row of rows) {
     if (row.candidate === undefined) {
