@@ -36,7 +36,11 @@ const recordedRunner: GoRunner = {
 const documents = JSON.parse(readFileSync(advisoryFile, 'utf8')) as AdvisoryDocument[];
 const recordedAdvisories: AdvisorySource = {
   async lookup(dependencies) {
-    return matchAdvisories(documents, dependencies);
+    return {
+      matches: matchAdvisories(documents, dependencies),
+      unchecked: new Set(),
+      stale: false,
+    };
   },
 };
 
@@ -72,7 +76,11 @@ void (async () => {
     () => undefined,
     { concurrency: 2 },
   );
-  const matches = (await adapter.advisories?.(advisoryTargets(model))) ?? new Map();
+  const matches = (await adapter.advisories?.(advisoryTargets(model))) ?? {
+    matches: new Map(),
+    unchecked: new Set<string>(),
+    stale: false,
+  };
   const withMatchedAdvisories = withAdvisories(model, matches);
   const withFailure = withFixtureFailure(withMatchedAdvisories);
 

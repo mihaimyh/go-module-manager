@@ -58,7 +58,11 @@ describe('advisory wiring', () => {
     const source: AdvisorySource = {
       async lookup(dependencies) {
         queried.push([...dependencies]);
-        return new Map([['rsc.io/quote@v1.5.1', [advisory]]]);
+        return {
+          matches: new Map([['rsc.io/quote@v1.5.1', [advisory]]]),
+          unchecked: new Set<string>(),
+          stale: false,
+        };
       },
     };
 

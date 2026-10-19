@@ -1,5 +1,5 @@
 import type { EcosystemAdapter } from '../../core/adapter';
-import type { Advisory, AdvisoryTarget } from '../../core/model';
+import type { AdvisoryReport, AdvisoryTarget } from '../../core/model';
 import type { AdvisorySource } from './advisory';
 import { downloadModules } from './download';
 import { readWorkspace } from './read';
@@ -37,7 +37,8 @@ export function createGoAdapter(
       : {
           advisories: (
             targets: readonly AdvisoryTarget[],
-          ): Promise<ReadonlyMap<string, readonly Advisory[]>> => source.lookup(targets),
+            options?: { readonly fresh?: boolean },
+          ): Promise<AdvisoryReport> => source.lookup(targets, options),
         }),
   };
 }

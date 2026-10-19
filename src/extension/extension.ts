@@ -12,6 +12,10 @@ import {
 } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
+import { createExecGoRunner } from '../ecosystems/go/runner';
+import type { AdvisorySource } from '../ecosystems/go/advisory';
+import { createLiveAdvisorySource } from '../ecosystems/go/advisorySource';
+import { FileAdvisoryCache } from './advisoryCache';
 import { GmmPanel } from './panel';
 
 interface LoadedModel {
@@ -22,6 +26,7 @@ interface LoadedModel {
 let current: LoadedModel | undefined;
 let refreshTimer: NodeJS.Timeout | undefined;
 let updating = false;
+let advisorySource: AdvisorySource | undefined;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 
@@ -422,13 +427,13 @@ async function fillUpdates(
 
   const base = current?.model ?? resolved;
   try {
-    const matches = await attachAdvisories(advisoryTargets(base));
+    const report = await attachAdvisories(advisoryTargets(base), { fresh });
     if (token !== cycle) {
       return;
     }
     // A failure may have painted while the lookup ran; merge into the latest.
     const latest = current?.model ?? base;
-    const merged = withAdvisories(latest, matches);
+    const merged = withAdvisories(latest, report);
     current = { ...loaded, model: merged };
     GmmPanel.update(merged);
   } catch (error) {
@@ -461,7 +466,10 @@ async function loadModel(
 
   try {
     const goPath = vscode.workspace.getConfiguration('gmm').get<string>('goPath') ?? 'go';
-    const [detected] = detectAdapters(root, { goPath });
+    const [detected] = detectAdapters(root, {
+      goPath,
+      advisories: ensureAdvisorySource(context, goPath),
+    });
     adapter = detected;
     if (!adapter) {
       void vscode.window.showErrorMessage(`GMM: no supported manifest under ${root}.`);
@@ -536,6 +544,32 @@ function watchManifests(context: vscode.ExtensionContext): vscode.Disposable {
 function failureKindOf(error: unknown): FailureKind {
   const kind = (error as { kind?: FailureKind } | null)?.kind;
   return kind ?? 'unknown';
+}
+
+/** One source per session: it owns the GOPRIVATE cache and the in-memory index. */
+function ensureAdvisorySource(
+  context: vscode.ExtensionContext,
+  goPath: string,
+): AdvisorySource {
+  if (advisorySource !== undefined) {
+    return advisorySource;
+  }
+  advisorySource = createLiveAdvisorySource({
+    fetchJson,
+    cache: new FileAdvisoryCache(
+      vscode.Uri.joinPath(context.globalStorageUri, 'advisory-db.json').fsPath,
+    ),
+    runner: createExecGoRunner(goPath),
+  });
+  return advisorySource;
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+  return response.json();
 }
 
 function messageOf(error: unknown): string {

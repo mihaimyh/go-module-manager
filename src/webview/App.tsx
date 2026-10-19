@@ -301,7 +301,12 @@ export function App({
         <section className="list" aria-label="Dependencies">
           {tab === 'vulnerabilities' ? (
             <p className="scan-note">
-              Reachability has not been scanned. These are module-level advisories.
+              Reachability has not been scanned.{' '}
+              {model.advisoryData === undefined
+                ? 'Advisory data is not loaded.'
+                : `Advisories from ${ageOf(model.advisoryData.fetchedAt)}${
+                    model.advisoryData.stale ? ' (stale)' : ''
+                  }.`}
             </p>
           ) : null}
           <table>
@@ -621,6 +626,12 @@ function Inspector({
         </button>
       </div>
 
+      {row.advisoryUnchecked === true ? (
+        <p className="unchecked-note mono">
+          Advisory lookup skipped: this module path is private.
+        </p>
+      ) : null}
+
       {row.advisories.map((advisory) => (
         <AdvisoryCard key={advisory.id} advisory={advisory} />
       ))}
@@ -664,4 +675,23 @@ async function copyPath(path: string): Promise<void> {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value !== '';
+}
+
+function ageOf(iso: string): string {
+  const elapsed = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(elapsed)) {
+    return 'an unknown time ago';
+  }
+  const minutes = Math.max(0, Math.round(elapsed / 60_000));
+  if (minutes < 1) {
+    return 'just now';
+  }
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) {
+    return `${hours} h ago`;
+  }
+  return `${Math.round(hours / 24)} d ago`;
 }

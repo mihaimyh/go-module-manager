@@ -1,5 +1,7 @@
-import { advisoryKey, type Advisory } from '../../core/model';
+import { advisoryKey, type Advisory, type AdvisoryReport } from '../../core/model';
 import { compareVersions, parseVersion } from '../../core/version';
+
+export type { AdvisoryReport };
 
 export interface AffectedRange {
   readonly module: string;
@@ -17,7 +19,8 @@ export interface AdvisoryDocument {
 export interface AdvisorySource {
   lookup(
     dependencies: readonly { readonly name: string; readonly version: string }[],
-  ): Promise<ReadonlyMap<string, readonly Advisory[]>>;
+    options?: { readonly fresh?: boolean },
+  ): Promise<AdvisoryReport>;
 }
 
 /**

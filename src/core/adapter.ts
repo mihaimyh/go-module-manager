@@ -1,5 +1,5 @@
 import type {
-  Advisory,
+  AdvisoryReport,
   AdvisoryTarget,
   PanelModel,
   ResolvedProject,
@@ -50,7 +50,8 @@ export interface EcosystemAdapter {
   /** Attaches advisories for the resolved versions in the model. */
   advisories?(
     targets: readonly AdvisoryTarget[],
-  ): Promise<ReadonlyMap<string, readonly Advisory[]>>;
+    options?: { readonly fresh?: boolean },
+  ): Promise<AdvisoryReport>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

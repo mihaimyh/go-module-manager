@@ -575,6 +575,12 @@ tbody th.col-module {
   border-color: var(--gmm-warning);
 }
 
+.unchecked-note {
+  margin: 18px 0 0;
+  font-size: 11px;
+  color: var(--gmm-muted);
+}
+
 .scan-note {
   margin: 0;
   padding: 8px 16px;

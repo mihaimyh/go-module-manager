@@ -22,6 +22,15 @@ export function advisoryKey(name: string, version: string): string {
   return `${name}@${version}`;
 }
 
+export interface AdvisoryReport {
+  /** Keyed by `name@version`. */
+  readonly matches: ReadonlyMap<string, readonly Advisory[]>;
+  /** Targets skipped because their path is private. */
+  readonly unchecked: ReadonlySet<string>;
+  readonly fetchedAt?: string;
+  readonly stale: boolean;
+}
+
 /** A manifest and the code it governs: one `go.mod`, one `pubspec.yaml`. */
 export interface ProjectInput {
   readonly manifestPath: string;
@@ -60,6 +69,13 @@ export interface DependencyRow {
   readonly advisories: readonly Advisory[];
   /** The last failed update for this row, shown until the next read. */
   readonly failure?: string;
+  /** True when the advisory lookup skipped this row because its path is private. */
+  readonly advisoryUnchecked?: boolean;
+}
+
+export interface AdvisoryData {
+  readonly fetchedAt: string;
+  readonly stale: boolean;
 }
 
 /** What the ecosystem's resolver decided for one project. */
@@ -93,6 +109,7 @@ export interface ProjectSummary {
 export interface PanelModel {
   readonly projects: readonly ProjectSummary[];
   readonly rows: readonly DependencyRow[];
+  readonly advisoryData?: AdvisoryData;
 }
 
 export interface AssembleOptions {
@@ -188,21 +205,23 @@ export function mergeFailure(model: PanelModel, failure: ProjectFailure): PanelM
  * Attaches matched advisories to rows whose version is known. A row that was
  * never resolved has no version to match, so it keeps an empty list.
  */
-export function withAdvisories(
-  model: PanelModel,
-  advisories: ReadonlyMap<string, readonly Advisory[]>,
-): PanelModel {
+export function withAdvisories(model: PanelModel, report: AdvisoryReport): PanelModel {
   return {
     ...model,
-    rows: model.rows.map((row) =>
-      row.resolvedVersion === undefined
-        ? row
-        : {
-            ...row,
-            advisories:
-              advisories.get(advisoryKey(row.name, row.resolvedVersion)) ?? [],
-          },
-    ),
+    ...(report.fetchedAt === undefined
+      ? {}
+      : { advisoryData: { fetchedAt: report.fetchedAt, stale: report.stale } }),
+    rows: model.rows.map((row) => {
+      if (row.resolvedVersion === undefined) {
+        return row;
+      }
+      const key = advisoryKey(row.name, row.resolvedVersion);
+      return {
+        ...row,
+        advisories: report.matches.get(key) ?? [],
+        advisoryUnchecked: report.unchecked.has(key),
+      };
+    }),
   };
 }
 

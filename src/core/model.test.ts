@@ -158,9 +158,13 @@ describe('mergeResolution', () => {
         dependencies: [{ name: 'rsc.io/sampler', version: 'v1.3.0' }],
       },
     ),
-    new Map([
-      ['rsc.io/sampler@v1.3.0', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
-    ]),
+    {
+      matches: new Map([
+        ['rsc.io/sampler@v1.3.0', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
+      ]),
+      unchecked: new Set<string>(),
+      stale: false,
+    },
   );
 
   it('fills the resolved version and the candidate for the matching project', () => {
@@ -242,14 +246,30 @@ describe('withAdvisories', () => {
       ['rsc.io/sampler@v1.3.0', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
     ]);
 
-    const unresolved = withAdvisories(base, matches);
+    const unresolved = withAdvisories(base, {
+      matches,
+      unchecked: new Set<string>(),
+      stale: false,
+    });
     expect(unresolved.rows[0]?.advisories).toEqual([]);
 
     const resolved = mergeResolution(base, {
       manifestPath: MANIFEST,
       dependencies: [{ name: 'rsc.io/sampler', version: 'v1.3.0' }],
     });
-    const attached = withAdvisories(resolved, matches);
+    const attached = withAdvisories(resolved, {
+      matches,
+      unchecked: new Set<string>(),
+      stale: false,
+    });
     expect(attached.rows[0]?.advisories).toHaveLength(1);
+    expect(attached.rows[0]?.advisoryUnchecked).toBe(false);
+
+    const skipped = withAdvisories(resolved, {
+      matches: new Map(),
+      unchecked: new Set(['rsc.io/sampler@v1.3.0']),
+      stale: false,
+    });
+    expect(skipped.rows[0]?.advisoryUnchecked).toBe(true);
   });
 });
