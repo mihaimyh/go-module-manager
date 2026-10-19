@@ -37,7 +37,7 @@ export function App({ model }: AppProps): JSX.Element {
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
 
   const rows = model?.rows ?? [];
-  const modules = model?.modules ?? [];
+  const projects = model?.projects ?? [];
   const updates = rows.filter((row) => row.candidate !== undefined);
   const advisoryIds = new Set(rows.flatMap((row) => row.advisories.map((a) => a.id)));
 
@@ -51,13 +51,13 @@ export function App({ model }: AppProps): JSX.Element {
           : rows;
 
     return byTab.filter((row) => {
-      if (directOnly && row.indirect) {
+      if (directOnly && row.transitive) {
         return false;
       }
-      if (moduleFilter !== 'all' && row.owningModule !== moduleFilter) {
+      if (moduleFilter !== 'all' && row.project !== moduleFilter) {
         return false;
       }
-      return needle === '' || row.path.toLowerCase().includes(needle);
+      return needle === '' || row.name.toLowerCase().includes(needle);
     });
   }, [rows, updates, tab, query, moduleFilter, directOnly]);
 
@@ -125,17 +125,17 @@ export function App({ model }: AppProps): JSX.Element {
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          {modules.length > 1 ? (
+          {projects.length > 1 ? (
             <div className="select">
               <select
                 aria-label="Owning module"
                 value={moduleFilter}
                 onChange={(event) => setModuleFilter(event.target.value)}
               >
-                <option value="all">All modules ({modules.length})</option>
-                {modules.map((module) => (
-                  <option key={module.goModPath} value={module.path}>
-                    {module.path}
+                <option value="all">All modules ({projects.length})</option>
+                {projects.map((project) => (
+                  <option key={project.manifestPath} value={project.name}>
+                    {project.name}
                   </option>
                 ))}
               </select>
@@ -305,32 +305,32 @@ function Row({
         <input
           type="checkbox"
           checked={checked}
-          aria-label={`Select ${row.path}`}
+          aria-label={`Select ${row.name}`}
           onClick={(event) => event.stopPropagation()}
           onChange={onToggle}
         />
       </td>
       <th scope="row" className="col-module">
-        <span className="mono path" title={row.path}>
-          {row.path}
+        <span className="mono path" title={row.name}>
+          {row.name}
         </span>
-        {row.indirect ? <span className="chip">indirect</span> : null}
+        {row.transitive ? <span className="chip">indirect</span> : null}
       </th>
-      <td className="col-owning mono muted" title={row.owningModule}>
-        {row.owningModule}
+      <td className="col-owning mono muted" title={row.project}>
+        {row.project}
       </td>
-      <td className="col-version mono muted" title={row.requiredVersion}>
-        {row.requiredVersion}
+      <td className="col-version mono muted" title={row.declaredVersion}>
+        {row.declaredVersion}
       </td>
-      <td className="col-version mono muted" title={row.selectedVersion}>
-        {row.selectedVersion}
+      <td className="col-version mono muted" title={row.resolvedVersion}>
+        {row.resolvedVersion}
       </td>
       <td className="col-update">
         <Candidate row={row} />
       </td>
       <td className="col-actions" onClick={(event) => event.stopPropagation()}>
         <details className="row-menu">
-          <summary title="Module actions" aria-label={`Actions for ${row.path}`}>
+          <summary title="Module actions" aria-label={`Actions for ${row.name}`}>
             <MoreIcon />
           </summary>
           <div className="menu" role="menu">
@@ -338,7 +338,7 @@ function Row({
               type="button"
               role="menuitem"
               onClick={(event) => {
-                void copyPath(row.path);
+                void copyPath(row.name);
                 event.currentTarget.closest('details')?.removeAttribute('open');
               }}
             >
@@ -346,7 +346,7 @@ function Row({
             </button>
             <a
               role="menuitem"
-              href={`https://pkg.go.dev/${row.path}`}
+              href={`https://pkg.go.dev/${row.name}`}
               target="_blank"
               rel="noreferrer"
             >
@@ -385,7 +385,7 @@ function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
 
 function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
   const versions = Array.from(
-    new Set([row.candidate, row.selectedVersion, row.requiredVersion].filter(isString)),
+    new Set([row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString)),
   );
 
   return (
@@ -393,16 +393,16 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
       <header className="inspector-head">
         <div>
           <h2 className="mono">
-            {row.path}
-            {row.indirect ? <span className="chip">indirect</span> : null}
+            {row.name}
+            {row.transitive ? <span className="chip">indirect</span> : null}
           </h2>
           <p className="muted">
-            required by <span className="mono">{row.owningModule}</span>
+            required by <span className="mono">{row.project}</span>
           </p>
         </div>
         <a
           className="icon-button"
-          href={`https://pkg.go.dev/${row.path}`}
+          href={`https://pkg.go.dev/${row.name}`}
           target="_blank"
           rel="noreferrer"
           title="Open on pkg.go.dev"
@@ -414,21 +414,21 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
       <dl className="facts">
         <div>
           <dt>Owning module</dt>
-          <dd className="mono">{row.owningModule}</dd>
+          <dd className="mono">{row.project}</dd>
         </div>
         <div>
           <dt>Declared in</dt>
           <dd>
-            <code className="mono path-code">{row.goModPath}</code>
+            <code className="mono path-code">{row.manifestPath}</code>
           </dd>
         </div>
         <div>
           <dt>Required</dt>
-          <dd className="mono">{row.requiredVersion}</dd>
+          <dd className="mono">{row.declaredVersion}</dd>
         </div>
         <div>
           <dt>Selected</dt>
-          <dd className="mono">{row.selectedVersion}</dd>
+          <dd className="mono">{row.resolvedVersion}</dd>
         </div>
         <div>
           <dt>Candidate</dt>
@@ -438,7 +438,7 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
         </div>
         <div>
           <dt>Type</dt>
-          <dd className="muted">{row.indirect ? 'indirect dependency' : 'direct dependency'}</dd>
+          <dd className="muted">{row.transitive ? 'indirect dependency' : 'direct dependency'}</dd>
         </div>
       </dl>
 
@@ -470,7 +470,7 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
       ))}
 
       <p className="footnote mono">
-        Runs <code>go get</code> in {row.owningModule} with workspace mode off.
+        Runs <code>go get</code> in {row.project} with workspace mode off.
       </p>
     </div>
   );

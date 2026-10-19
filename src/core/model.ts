@@ -1,48 +1,57 @@
-import type { GoModRequire, ModuleListEntry } from './goJson';
-import { classifyUpdate, isPrerelease, isPseudoVersion, type UpdateKind } from './version';
+import { isPrerelease, type UpdateKind } from './version';
 
-/** A requirement line in one `go.mod`. The unit GMM lists, edits and updates. */
-export interface Requirement {
-  readonly goModPath: string;
-  readonly owningModule: string;
-  readonly path: string;
-  readonly version: string;
-  readonly indirect: boolean;
-}
-
-export interface ModuleFile {
-  readonly goModPath: string;
-  readonly modulePath: string;
-  readonly requirements: readonly Requirement[];
-}
-
+/** A published report that specific symbols in a version range are vulnerable. */
 export interface Advisory {
   readonly id: string;
   readonly summary: string;
   readonly fixedIn?: string;
 }
 
+/** A manifest and the code it governs: one `go.mod`, one `pubspec.yaml`. */
+export interface ProjectInput {
+  readonly manifestPath: string;
+  readonly name: string;
+  readonly dependencies: readonly DependencyInput[];
+}
+
+/** A declared need on another unit of code, as written in a manifest. */
+export interface DependencyInput {
+  readonly manifestPath: string;
+  readonly project: string;
+  readonly name: string;
+  readonly declaredVersion: string;
+  readonly transitive: boolean;
+}
+
+/** What the ecosystem's resolver decided for one dependency. */
+export interface ResolvedDependency {
+  readonly name: string;
+  readonly version: string;
+  readonly candidate?: string;
+  readonly kind?: UpdateKind;
+}
+
 export interface DependencyRow {
   readonly id: string;
-  readonly path: string;
-  readonly owningModule: string;
-  readonly goModPath: string;
-  readonly requiredVersion: string;
-  readonly selectedVersion: string;
-  readonly indirect: boolean;
+  readonly name: string;
+  readonly project: string;
+  readonly manifestPath: string;
+  readonly declaredVersion: string;
+  readonly resolvedVersion: string;
+  readonly transitive: boolean;
   readonly candidate?: string;
   readonly kind: UpdateKind;
   readonly advisories: readonly Advisory[];
 }
 
-export interface ModuleSummary {
-  readonly path: string;
-  readonly goModPath: string;
+export interface ProjectSummary {
+  readonly name: string;
+  readonly manifestPath: string;
   readonly dependencyCount: number;
 }
 
 export interface PanelModel {
-  readonly modules: readonly ModuleSummary[];
+  readonly projects: readonly ProjectSummary[];
   readonly rows: readonly DependencyRow[];
 }
 
@@ -51,100 +60,67 @@ export interface AssembleOptions {
   readonly advisories?: ReadonlyMap<string, readonly Advisory[]>;
 }
 
-export function requirementFromGoMod(
-  goModPath: string,
-  owningModule: string,
-  require: GoModRequire,
-): Requirement | undefined {
-  if (!require.Path || !require.Version) {
-    return undefined;
-  }
-  return {
-    goModPath,
-    owningModule,
-    path: require.Path,
-    version: require.Version,
-    indirect: require.Indirect === true,
-  };
-}
-
 /**
- * One row per requirement, never one row per module path: two modules in the
- * same workspace can require the same path at different versions, and that is
- * the divergence the Consolidate view exists to explain.
+ * One row per declared dependency, never one row per name: two projects can
+ * declare the same dependency at different versions, and that divergence is
+ * what the Consolidate view exists to explain.
  */
 export function assemblePanelModel(
-  files: readonly ModuleFile[],
-  buildLists: ReadonlyMap<string, readonly ModuleListEntry[]>,
+  projects: readonly ProjectInput[],
+  resolvedByManifest: ReadonlyMap<string, readonly ResolvedDependency[]>,
   options: AssembleOptions = {},
 ): PanelModel {
   const rows: DependencyRow[] = [];
 
-  for (const file of files) {
-    const buildList = buildLists.get(file.goModPath) ?? [];
-    const byPath = new Map<string, ModuleListEntry>(
-      buildList
-        .filter(hasIdentity)
-        .map((entry): [string, ModuleListEntry] => [entry.Path, entry]),
-    );
+  for (const project of projects) {
+    const resolved = resolvedByManifest.get(project.manifestPath) ?? [];
+    const byName = new Map(resolved.map((entry) => [entry.name, entry]));
 
-    for (const requirement of file.requirements) {
-      const selected = byPath.get(requirement.path);
-      const selectedVersion = selected?.Version ?? requirement.version;
-      const candidate = pickCandidate(selected, options.includePrereleases === true);
+    for (const dependency of project.dependencies) {
+      const entry = byName.get(dependency.name);
+      const resolvedVersion = entry?.version ?? dependency.declaredVersion;
+
+      let candidate = entry?.candidate;
+      let kind: UpdateKind = entry?.kind ?? 'none';
+
+      // Prereleases are a product-level policy, not an ecosystem one.
+      if (candidate !== undefined && isPrerelease(candidate) && options.includePrereleases !== true) {
+        candidate = undefined;
+        kind = 'none';
+      }
+      if (candidate === resolvedVersion) {
+        candidate = undefined;
+        kind = 'none';
+      }
 
       rows.push({
-        id: `${file.goModPath}#${requirement.path}`,
-        path: requirement.path,
-        owningModule: file.modulePath,
-        goModPath: file.goModPath,
-        requiredVersion: requirement.version,
-        selectedVersion,
-        indirect: requirement.indirect,
+        id: `${project.manifestPath}#${dependency.name}`,
+        name: dependency.name,
+        project: project.name,
+        manifestPath: project.manifestPath,
+        declaredVersion: dependency.declaredVersion,
+        resolvedVersion,
+        transitive: dependency.transitive,
         ...(candidate === undefined ? {} : { candidate }),
-        kind: candidate === undefined ? 'none' : classifyUpdate(selectedVersion, candidate),
-        advisories: options.advisories?.get(requirement.path) ?? [],
+        kind,
+        advisories: options.advisories?.get(dependency.name) ?? [],
       });
     }
   }
 
   rows.sort((left, right) => {
-    if (left.owningModule !== right.owningModule) {
-      return left.owningModule.localeCompare(right.owningModule);
+    if (left.project !== right.project) {
+      return left.project.localeCompare(right.project);
     }
-    return left.path.localeCompare(right.path);
+    return left.name.localeCompare(right.name);
   });
 
   return {
-    modules: files.map((file) => ({
-      path: file.modulePath,
-      goModPath: file.goModPath,
-      dependencyCount: file.requirements.length,
+    projects: projects.map((project) => ({
+      name: project.name,
+      manifestPath: project.manifestPath,
+      dependencyCount: project.dependencies.length,
     })),
     rows,
   };
-}
-
-/**
- * Pseudo-versions are never offered as a target, and prereleases only on request:
- * both would present a state the toolchain will not select by default.
- */
-function pickCandidate(
-  selected: ModuleListEntry | undefined,
-  includePrereleases: boolean,
-): string | undefined {
-  const version = selected?.Update?.Version;
-  if (!version || isPseudoVersion(version)) {
-    return undefined;
-  }
-  if (isPrerelease(version) && !includePrereleases) {
-    return undefined;
-  }
-  return version;
-}
-
-function hasIdentity(
-  entry: ModuleListEntry,
-): entry is ModuleListEntry & { Path: string } {
-  return typeof entry.Path === 'string' && entry.Path !== '';
 }

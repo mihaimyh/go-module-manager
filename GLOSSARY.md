@@ -66,8 +66,8 @@ A `go.work` file grouping several modules for local development. It does not ali
 _Avoid_: solution, multi-project (NuGet words)
 
 **Owning module**:
-The module whose `go.mod` contains a given requirement. Every read and every action on that requirement is scoped to it.
-_Avoid_: project, host module
+The Go module whose `go.mod` contains a given requirement; the project that owns a dependency in the cross-ecosystem model.
+_Avoid_: host module
 
 **Consolidation**:
 Comparing, across the modules of one workspace, the versions they require of the same module path. Divergence is shown, not rewritten.
@@ -75,6 +75,27 @@ _Avoid_: sync, alignment (that is the write action, not the view)
 
 **Workspace sync**:
 Writing the workspace build list's versions back into every member module's `go.mod` in one operation. A bulk write, distinct from consolidation.
+
+## Cross-ecosystem core
+
+**Project**:
+One manifest and the code it governs — a `go.mod`, a `pubspec.yaml`. The owning unit of every action.
+_Avoid_: workspace, solution
+
+**Dependency**:
+A declared need on another unit of code, carrying a declared version and a resolved version. The row in the panel.
+_Avoid_: package (in Go that is a directory of source; in Dart it is the dependency unit itself)
+
+**Declared version**:
+The version written in the manifest.
+_Avoid_: required version (Go-only wording, kept only in UI copy)
+
+**Resolved version**:
+The version the ecosystem's resolver picked. At least the declared version in Go; the lockfile's pin in Dart.
+_Avoid_: selected version (Go-only), locked version
+
+**Scope**:
+Why a dependency is needed: at runtime, only for development, or optionally. Go only ever fills this with runtime.
 
 ## Security
 

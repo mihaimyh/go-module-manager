@@ -1,6 +1,8 @@
 import { join } from 'node:path';
-import { loadFixtureWorkspace } from '../src/core/fixtures';
+import { goAdapter } from '../src/ecosystems/go/adapter';
 
 const root = join(process.cwd(), 'test', 'fixtures', 'workspace');
 
-process.stdout.write(JSON.stringify(loadFixtureWorkspace(root)));
+void goAdapter.read(root).then((model) => {
+  process.stdout.write(JSON.stringify(model));
+});

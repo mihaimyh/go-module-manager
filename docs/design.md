@@ -23,6 +23,7 @@ No package browsing, no installing new modules, no running builds or tests, no w
 | Candidates are stable versions of the same path | no commit pinning from the UI; major upgrade is a different path | ADR 0004 |
 | The `go` command is the parser | `go` on PATH is mandatory; one spawn per read, cached by file hash | ADR 0005 |
 | One panel over every module | actions name their owning `go.mod`; reads are parallel per module | ADR 0006 |
+| Ecosystems sit behind an adapter | core speaks Project/Dependency; Go is the only adapter until 0.1 ships | ADR 0007 |
 
 ## 0.1 ship bar
 

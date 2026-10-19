@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { loadFixtureWorkspace } from '../core/fixtures';
 import type { PanelModel } from '../core/model';
+import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -35,7 +35,12 @@ async function loadModel(): Promise<PanelModel | undefined> {
     vscode.Uri.joinPath(folder.uri, 'test', 'fixtures', 'workspace').fsPath;
 
   try {
-    return loadFixtureWorkspace(root);
+    const [adapter] = detectAdapters(root);
+    if (!adapter) {
+      void vscode.window.showErrorMessage(`GMM: no supported manifest under ${root}.`);
+      return undefined;
+    }
+    return await adapter.read(root);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     void vscode.window.showErrorMessage(
