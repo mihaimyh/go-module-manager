@@ -5,6 +5,7 @@ import { downloadModules } from './download';
 import { readWorkspace } from './read';
 import { createProjectResolver } from './resolve';
 import { createExecGoRunner, type GoRunner } from './runner';
+import { installScanner, scanProject } from './scan';
 import { tidyProject } from './tidy';
 import { createUpdater } from './update';
 
@@ -31,6 +32,8 @@ export function createGoAdapter(
     update: (request) => updater.update(request),
     undo: (manifestPath) => updater.undo(manifestPath),
     tidy: (manifestPath) => tidyProject(manifestPath, runner),
+    scan: (manifestPath) => scanProject(manifestPath, runner),
+    installScanner: () => installScanner(process.cwd(), runner),
     toolchainUrl: 'https://go.dev/dl/',
     ...(source === undefined
       ? {}

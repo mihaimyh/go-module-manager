@@ -41,4 +41,9 @@ export type WebviewToHost =
   | {
       readonly type: 'tidy';
       readonly manifests: readonly string[];
-    };
+    }
+  | {
+      readonly type: 'scan';
+      readonly manifests: readonly string[];
+    }
+  | { readonly type: 'install-scanner' };

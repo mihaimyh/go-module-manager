@@ -11,6 +11,7 @@ import {
   type PanelModel,
 } from '../core/model';
 import { resolveProjects } from '../core/updates';
+import { applyScan, markScan } from '../core/scan';
 import { detectAdapters } from '../ecosystems';
 import { createExecGoRunner } from '../ecosystems/go/runner';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
@@ -70,6 +71,12 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
     },
     onTidy: (manifests) => {
       void tidyProjects(context, manifests);
+    },
+    onScan: (manifests) => {
+      void scanProjects(manifests);
+    },
+    onInstallScanner: () => {
+      void installScannerCli();
     },
   });
 
@@ -383,6 +390,82 @@ async function tidyProjects(
     await refresh(context, false);
   } finally {
     updating = false;
+  }
+}
+
+async function scanProjects(manifests: readonly string[]): Promise<void> {
+  if (updating) {
+    return;
+  }
+  const loaded = current;
+  const scan = loaded?.adapter.scan;
+  if (loaded === undefined || scan === undefined) {
+    return;
+  }
+
+  const targets = [...new Set(manifests)];
+  if (targets.length === 0) {
+    void vscode.window.showInformationMessage('GMM: select a project to scan.');
+    return;
+  }
+
+  const token = cycle;
+  updating = true;
+  try {
+    for (const manifestPath of targets) {
+      if (token !== cycle || current === undefined) {
+        return;
+      }
+      current = {
+        ...current,
+        model: markScan(current.model, manifestPath, { status: 'running' }),
+      };
+      GmmPanel.update(current.model);
+
+      try {
+        const findings = await scan(manifestPath);
+        if (token !== cycle || current === undefined) {
+          return;
+        }
+        current = {
+          ...current,
+          model: applyScan(current.model, manifestPath, findings, new Date().toISOString()),
+        };
+      } catch (error) {
+        if (token !== cycle || current === undefined) {
+          return;
+        }
+        current = {
+          ...current,
+          model: markScan(current.model, manifestPath, {
+            status: 'failed',
+            at: new Date().toISOString(),
+            message: messageOf(error),
+          }),
+        };
+      }
+      GmmPanel.update(current.model);
+    }
+  } finally {
+    updating = false;
+  }
+}
+
+async function installScannerCli(): Promise<void> {
+  const install = current?.adapter.installScanner;
+  if (install === undefined) {
+    return;
+  }
+
+  try {
+    await install();
+    void vscode.window.showInformationMessage(
+      'GMM: govulncheck installed for terminal use. Scans already run the latest version through go run.',
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `GMM: could not install govulncheck. ${messageOf(error)}`,
+    );
   }
 }
 

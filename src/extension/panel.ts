@@ -19,6 +19,8 @@ export interface PanelHandlers {
   readonly onUpdate: (request: UpdateRequest) => void;
   readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
+  readonly onScan: (manifests: readonly string[]) => void;
+  readonly onInstallScanner: () => void;
 }
 
 export class GmmPanel {
@@ -84,6 +86,12 @@ export class GmmPanel {
         }
         if (message.type === 'tidy') {
           this.handlers.onTidy(toManifests(message.manifests, this.model));
+        }
+        if (message.type === 'scan') {
+          this.handlers.onScan(toManifests(message.manifests, this.model));
+        }
+        if (message.type === 'install-scanner') {
+          this.handlers.onInstallScanner();
         }
       },
       undefined,

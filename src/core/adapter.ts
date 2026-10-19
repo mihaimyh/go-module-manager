@@ -4,6 +4,7 @@ import type {
   PanelModel,
   ResolvedProject,
 } from './model';
+import type { ScanFinding } from './scan';
 
 export interface ResolveOptions {
   /** Ignore a settled cache entry; an in-flight lookup is still shared. */
@@ -52,6 +53,10 @@ export interface EcosystemAdapter {
     targets: readonly AdvisoryTarget[],
     options?: { readonly fresh?: boolean },
   ): Promise<AdvisoryReport>;
+  /** Runs the precise, call-graph scan for one project. */
+  scan?(manifestPath: string): Promise<readonly ScanFinding[]>;
+  /** Optional: installs the scanner CLI for terminal use; scans never need it. */
+  installScanner?(): Promise<void>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

@@ -51,6 +51,16 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onScan = (manifests: readonly string[]): void => {
+    const message: WebviewToHost = { type: 'scan', manifests };
+    vscode.postMessage(message);
+  };
+
+  const onInstallScanner = (): void => {
+    const message: WebviewToHost = { type: 'install-scanner' };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -60,6 +70,8 @@ function Root(): JSX.Element {
       onUpdate={onUpdate}
       onBulkUpdate={onBulkUpdate}
       onTidy={onTidy}
+      onScan={onScan}
+      onInstallScanner={onInstallScanner}
     />
   );
 }

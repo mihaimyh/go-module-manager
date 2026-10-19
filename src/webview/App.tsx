@@ -42,6 +42,8 @@ interface AppProps {
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
   readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
+  readonly onScan: (manifests: readonly string[]) => void;
+  readonly onInstallScanner: () => void;
 }
 
 export function App({
@@ -52,8 +54,12 @@ export function App({
   onUpdate,
   onBulkUpdate,
   onTidy,
+  onScan,
+  onInstallScanner,
 }: AppProps): JSX.Element {
-  const [tab, setTab] = useState<Tab>('dependencies');
+  const [tab, setTab] = useState<Tab>(() =>
+    window.location.hash === '#vulnerabilities' ? 'vulnerabilities' : 'dependencies',
+  );
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
   const [directOnly, setDirectOnly] = useState(false);
@@ -103,11 +109,31 @@ export function App({
   const selected = rows.find((row) => row.id === activeId);
   const selectedRows = rows.filter((row) => checked.has(row.id));
   const updatable = selectedRows.filter((row) => row.candidate !== undefined);
-  const tidyTargets = (() => {
+  const targetManifests = (() => {
     if (selectedRows.length > 0) {
       return [...new Set(selectedRows.map((row) => row.manifestPath))];
     }
     return selected === undefined ? [] : [selected.manifestPath];
+  })();
+  const hasReachable = rows.some((row) =>
+    row.advisories.some((advisory) => advisory.reachable === true),
+  );
+  const scanState = (() => {
+    if (projects.some((project) => project.scan?.status === 'running')) {
+      return 'Scanning reachable code…';
+    }
+    const failed = projects.find((project) => project.scan?.status === 'failed')?.scan;
+    if (failed !== undefined) {
+      return `Scan failed: ${failed.message ?? 'unknown error'}`;
+    }
+    const at = projects
+      .map((project) => project.scan?.at)
+      .filter((value): value is string => value !== undefined)
+      .sort()
+      .at(-1);
+    return at === undefined
+      ? 'Reachability has not been scanned.'
+      : `Reachable code scanned ${ageOf(at)}.`;
   })();
 
   if (!model) {
@@ -199,7 +225,7 @@ export function App({
           <button
             type="button"
             className="button secondary"
-            onClick={() => onTidy(tidyTargets)}
+            onClick={() => onTidy(targetManifests)}
             title="Run go mod tidy in the selected projects"
           >
             <TerminalIcon />
@@ -233,7 +259,7 @@ export function App({
         <TabButton
           label="Vulnerabilities"
           count={advisoryIds.size}
-          tone="warning"
+          tone={hasReachable ? 'danger' : 'warning'}
           active={tab === 'vulnerabilities'}
           onClick={() => setTab('vulnerabilities')}
         />
@@ -301,14 +327,31 @@ export function App({
       <main className="workspace">
         <section className="list" aria-label="Dependencies">
           {tab === 'vulnerabilities' ? (
-            <p className="scan-note">
-              Reachability has not been scanned.{' '}
-              {model.advisoryData === undefined
-                ? 'Advisory data is not loaded.'
-                : `Advisories from ${ageOf(model.advisoryData.fetchedAt)}${
-                    model.advisoryData.stale ? ' (stale)' : ''
-                  }.`}
-            </p>
+            <div className="scan-note">
+              <span className="scan-text">
+                {scanState}
+                {model.advisoryData === undefined
+                  ? ''
+                  : ` Advisories ${model.advisoryData.stale ? 'may be stale' : `from ${ageOf(model.advisoryData.fetchedAt)}`}.`}
+              </span>
+              <button
+                type="button"
+                className="button secondary compact"
+                disabled={targetManifests.length === 0}
+                title="Run govulncheck through go run for the selected project"
+                onClick={() => onScan(targetManifests)}
+              >
+                Scan reachable
+              </button>
+              <button
+                type="button"
+                className="link-button"
+                title="Scans already use the latest govulncheck through go run; install it only if you also want the CLI."
+                onClick={onInstallScanner}
+              >
+                Install govulncheck
+              </button>
+            </div>
           ) : null}
           <table>
             <colgroup>
@@ -379,7 +422,7 @@ function TabButton({
   readonly label: string;
   readonly count: number;
   readonly active: boolean;
-  readonly tone?: 'warning';
+  readonly tone?: 'warning' | 'danger';
   readonly onClick: () => void;
 }): JSX.Element {
   return (
@@ -390,7 +433,7 @@ function TabButton({
       onClick={onClick}
     >
       {label}
-      {count > 0 ? <span className={`pill${tone === 'warning' ? ' warning' : ''}`}>{count}</span> : null}
+      {count > 0 ? <span className={`pill${tone === undefined ? '' : ` ${tone}`}`}>{count}</span> : null}
     </button>
   );
 }
@@ -428,10 +471,16 @@ function Row({
         {row.transitive ? <span className="chip">indirect</span> : null}
         {row.advisories.length > 0 ? (
           <span
-            className="chip advisory"
+            className={`chip ${
+              row.advisories.some((advisory) => advisory.reachable === true)
+                ? 'reachable'
+                : 'advisory'
+            }`}
             title={row.advisories.map((advisory) => advisory.id).join(', ')}
           >
-            advisory
+            {row.advisories.some((advisory) => advisory.reachable === true)
+              ? 'reachable'
+              : 'advisory'}
           </span>
         ) : null}
       </th>
@@ -661,7 +710,7 @@ function AdvisoryCard({
   const fix = advisoryFixOffer(advisory, row.resolvedVersion);
 
   return (
-    <div className="callout">
+    <div className={advisory.reachable === true ? 'callout reachable' : 'callout'}>
       <WarningIcon size={16} />
       <div>
         <strong>Advisory affects this module</strong>
@@ -669,6 +718,12 @@ function AdvisoryCard({
           {advisory.id} · {advisory.summary}
           {advisory.fixedIn ? ` · fixed in ${advisory.fixedIn}` : ''}
         </p>
+        {advisory.reachable === true ? (
+          <p className="reachable-line mono">
+            Reachable via {advisory.symbol ?? 'an unnamed symbol'}
+            {advisory.package === undefined ? '' : ` · ${advisory.package}`}
+          </p>
+        ) : null}
         <div className="callout-actions">
           <a
             href={`https://pkg.go.dev/vuln/${advisory.id}`}

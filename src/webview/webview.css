@@ -575,6 +575,60 @@ tbody th.col-module {
   border-color: var(--gmm-warning);
 }
 
+.chip.reachable {
+  color: var(--gmm-danger);
+  border-color: var(--gmm-danger);
+}
+
+.pill.danger {
+  color: var(--gmm-danger);
+  border-color: var(--gmm-danger);
+}
+
+.scan-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gmm-border-soft);
+  color: var(--gmm-muted);
+  font-size: 11px;
+}
+
+.scan-text {
+  flex: 1;
+  min-width: 220px;
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.callout.reachable {
+  border-color: var(--gmm-danger);
+  background: color-mix(in srgb, var(--gmm-danger) 7%, transparent);
+}
+
+.callout.reachable > svg {
+  color: var(--gmm-danger);
+}
+
+.reachable-line {
+  margin: 6px 0 0;
+  color: var(--gmm-danger);
+  font-size: 11px;
+}
+
 .unchecked-note {
   margin: 18px 0 0;
   font-size: 11px;

@@ -5,6 +5,10 @@ export interface Advisory {
   readonly id: string;
   readonly summary: string;
   readonly fixedIn?: string;
+  /** True only when a call-graph scan found the vulnerable symbol reachable. */
+  readonly reachable?: boolean;
+  readonly symbol?: string;
+  readonly package?: string;
 }
 
 /** One resolved dependency to look up, independent of the project that declared it. */
@@ -99,11 +103,18 @@ export interface ProjectFailure {
   readonly message: string;
 }
 
+export interface ProjectScan {
+  readonly status: 'running' | 'complete' | 'failed';
+  readonly at?: string;
+  readonly message?: string;
+}
+
 export interface ProjectSummary {
   readonly name: string;
   readonly manifestPath: string;
   readonly dependencyCount: number;
   readonly failure?: ProjectFailure;
+  readonly scan?: ProjectScan;
 }
 
 export interface PanelModel {
