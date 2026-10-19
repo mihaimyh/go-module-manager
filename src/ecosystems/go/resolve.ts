@@ -68,33 +68,20 @@ async function resolveProject(
     timeoutMs: UPDATE_TIMEOUT_MS,
   });
 
-  if (result.exitCode !== 0) {
-    const kind = failureKindFor(result.exitCode, result.stderr);
-    throw new GoCommandError(
-      kind,
-      kind === 'timeout'
-        ? `${manifestPath}: the update lookup timed out after ${UPDATE_TIMEOUT_MS / 1000}s`
-        : `${manifestPath}: ${firstLine(result.stderr)}`,
-    );
+  const parsed = parseModuleList(result.stdout);
+  const dependencies = parsed.filter(hasVersion).map(toResolvedDependency);
+
+  // `-e` keeps the modules that resolved. Some toolchain failures still exit
+  // non-zero while printing usable JSON, so entries win over the exit code.
+  if (dependencies.length > 0) {
+    return { manifestPath, dependencies };
   }
 
-  const dependencies = parseModuleList(result.stdout)
-    .filter(hasVersion)
-    .map(toResolvedDependency);
-
-  // `-e` keeps the modules that resolved; if nothing at all resolved, the
-  // first per-module error is the useful message.
-  if (dependencies.length === 0) {
-    const firstError = parseModuleList(result.stdout).find(
-      (entry) => typeof entry.Error?.Err === 'string',
-    );
-    throw new GoCommandError(
-      failureKindFor(result.exitCode, firstError?.Error?.Err ?? result.stderr),
-      `${manifestPath}: ${firstLine(firstError?.Error?.Err ?? result.stderr)}`,
-    );
-  }
-
-  return { manifestPath, dependencies };
+  const firstError = parsed.find((entry) => typeof entry.Error?.Err === 'string');
+  throw new GoCommandError(
+    failureKindFor(result.exitCode, firstError?.Error?.Err ?? result.stderr),
+    `${manifestPath}: ${firstLine(firstError?.Error?.Err ?? result.stderr)}`,
+  );
 }
 
 function toResolvedDependency(

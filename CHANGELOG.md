@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+### Fixed
+
+- The version picker excludes retracted versions. Retractions are read from the latest version's `go.mod` (single versions, closed intervals and blocks), so the picker matches what `go get` would accept.
+- A partial `go list` result is used even when the command exits non-zero, so one checksum-database failure no longer hides the whole update list.
+
 ## 0.1.8
 
 ### Added

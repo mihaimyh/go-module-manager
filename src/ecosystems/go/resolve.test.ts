@@ -162,3 +162,20 @@ describe('partial failures', () => {
     });
   });
 });
+
+describe('partial exit codes', () => {
+  it('keeps the modules printed even when go list exits non-zero', async () => {
+    const manifestPath = moduleWithFiles('module example.com/a\n');
+    const runner = new FakeRunner(() => ({
+      stdout: JSON.stringify({ Path: 'rsc.io/quote', Version: 'v1.5.1' }),
+      stderr: 'go: loading module retractions: malformed note',
+      exitCode: 1,
+    }));
+
+    const resolved = await createProjectResolver(runner).resolve(manifestPath);
+
+    expect(resolved.dependencies).toEqual([
+      { name: 'rsc.io/quote', version: 'v1.5.1' },
+    ]);
+  });
+});
