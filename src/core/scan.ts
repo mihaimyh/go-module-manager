@@ -1,15 +1,15 @@
 import type { Advisory, PanelModel, ProjectScan } from './model';
 
-export interface ScanFinding {
+export interface CallGraphFinding {
   readonly id: string;
   readonly symbol?: string;
-  readonly package?: string;
+  readonly packagePath?: string;
 }
 
 /**
- * Records the scan lifecycle on one project. Findings are only ever applied to
- * advisories the module-level lookup already returned: a scan cannot invent a
- * badge, it can only upgrade one.
+ * Records the scan lifecycle on one project. Starting or failing a scan clears
+ * the previous reachability, so a stale red chip cannot survive a rescan.
+ * "not-run" is the absence of a scan on the project.
  */
 export function markScan(
   model: PanelModel,
@@ -21,25 +21,30 @@ export function markScan(
     projects: model.projects.map((project) =>
       project.manifestPath === manifestPath ? { ...project, scan } : project,
     ),
+    ...(scan.status === 'running' || scan.status === 'failed'
+      ? { rows: resetReachability(model, manifestPath).rows }
+      : {}),
   };
 }
 
 export function applyScan(
   model: PanelModel,
   manifestPath: string,
-  findings: readonly ScanFinding[],
+  findings: readonly CallGraphFinding[],
   at: string,
 ): PanelModel {
-  const byId = new Map<string, ScanFinding>();
+  const byId = new Map<string, CallGraphFinding>();
   for (const finding of findings) {
     if (!byId.has(finding.id)) {
       byId.set(finding.id, finding);
     }
   }
 
+  const reset = resetReachability(model, manifestPath);
+
   return {
-    ...markScan(model, manifestPath, { status: 'complete', at }),
-    rows: model.rows.map((row) => {
+    ...markScan(reset, manifestPath, { status: 'complete', at }),
+    rows: reset.rows.map((row) => {
       if (row.manifestPath !== manifestPath || row.advisories.length === 0) {
         return row;
       }
@@ -59,11 +64,34 @@ export function hasReachable(model: PanelModel): boolean {
   return model.rows.some((row) => row.advisories.some((advisory) => advisory.reachable === true));
 }
 
-function reachable(advisory: Advisory, finding: ScanFinding): Advisory {
+function resetReachability(model: PanelModel, manifestPath: string): PanelModel {
+  return {
+    ...model,
+    rows: model.rows.map((row) => {
+      if (row.manifestPath !== manifestPath || !row.advisories.some((a) => a.reachable)) {
+        return row;
+      }
+      return {
+        ...row,
+        advisories: row.advisories.map((advisory) => withoutReachability(advisory)),
+      };
+    }),
+  };
+}
+
+function withoutReachability(advisory: Advisory): Advisory {
+  const { reachable, symbol, packagePath, ...rest } = advisory;
+  void reachable;
+  void symbol;
+  void packagePath;
+  return rest;
+}
+
+function reachable(advisory: Advisory, finding: CallGraphFinding): Advisory {
   return {
     ...advisory,
     reachable: true,
     ...(finding.symbol === undefined ? {} : { symbol: finding.symbol }),
-    ...(finding.package === undefined ? {} : { package: finding.package }),
+    ...(finding.packagePath === undefined ? {} : { packagePath: finding.packagePath }),
   };
 }

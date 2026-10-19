@@ -32,7 +32,7 @@ function manifest(): string {
   return path;
 }
 
-const REACHABLE = JSON.stringify({
+const CALL_FINDING = JSON.stringify({
   finding: {
     osv: 'GO-0000-00001',
     fixed_version: 'v1.99.99',
@@ -43,21 +43,29 @@ const REACHABLE = JSON.stringify({
   },
 });
 
-const NOT_REACHABLE = JSON.stringify({ finding: { osv: 'GO-0000-00002', trace: [] } });
+const MODULE_FINDING = JSON.stringify({
+  finding: {
+    osv: 'GO-0000-00002',
+    trace: [{ module: 'rsc.io/sampler', package: 'rsc.io/sampler', version: 'v1.3.0' }],
+  },
+});
+
+const IMPORTS_FINDING = JSON.stringify({
+  finding: {
+    osv: 'GO-0000-00003',
+    trace: [{ module: 'rsc.io/sampler', package: 'rsc.io/sampler' }],
+  },
+});
 
 describe('scanning a project', () => {
   it('runs govulncheck through the toolchain in the project directory', async () => {
     const manifestPath = manifest();
-    const runner = new FakeRunner({ stdout: REACHABLE, stderr: '', exitCode: 0 });
+    const runner = new FakeRunner({ stdout: CALL_FINDING, stderr: '', exitCode: 0 });
 
     const findings = await scanProject(manifestPath, runner);
 
     expect(findings).toEqual([
-      {
-        id: 'GO-0000-00001',
-        symbol: 'DefaultText',
-        package: 'rsc.io/sampler',
-      },
+      { id: 'GO-0000-00001', symbol: 'DefaultText', packagePath: 'rsc.io/sampler' },
     ]);
     expect(runner.calls).toHaveLength(1);
     expect(runner.calls[0]?.args).toEqual([
@@ -70,16 +78,16 @@ describe('scanning a project', () => {
     expect(runner.calls[0]?.options.env.GOWORK).toBe('off');
   });
 
-  it('reports a typed failure instead of findings', async () => {
+  it('reports a typed failure with the real cause, not download chatter', async () => {
     const manifestPath = manifest();
     const runner = new FakeRunner({
       stdout: '',
-      stderr: 'go: build failed',
+      stderr: 'go: downloading golang.org/x/vuln v1.1.4\ngo: build failed',
       exitCode: 1,
     });
 
     await expect(scanProject(manifestPath, runner)).rejects.toMatchObject({
-      message: expect.stringMatching(/govulncheck failed: go: build failed/),
+      message: 'govulncheck failed: go: build failed',
     });
   });
 
@@ -96,23 +104,46 @@ describe('scanning a project', () => {
 });
 
 describe('parseScanOutput', () => {
-  it('keeps reachable findings and skips advisories without a trace', () => {
+  it('keeps only findings whose first frame is a called function', () => {
     const findings = parseScanOutput(
-      [REACHABLE, NOT_REACHABLE, 'not json', '', REACHABLE].join('\n'),
+      [MODULE_FINDING, IMPORTS_FINDING, CALL_FINDING, 'not json', ''].join('\n'),
     );
 
     expect(findings).toEqual([
-      { id: 'GO-0000-00001', symbol: 'DefaultText', package: 'rsc.io/sampler' },
+      { id: 'GO-0000-00001', symbol: 'DefaultText', packagePath: 'rsc.io/sampler' },
     ]);
   });
 
-  it('survives a frame without a function', () => {
+  it('prefers the symbol-level finding when the module-level one arrives first', () => {
+    const moduleFirst = [
+      JSON.stringify({
+        finding: { osv: 'GO-0000-00001', trace: [{ module: 'rsc.io/sampler' }] },
+      }),
+      CALL_FINDING,
+    ].join('\n');
+
+    expect(parseScanOutput(moduleFirst)).toEqual([
+      { id: 'GO-0000-00001', symbol: 'DefaultText', packagePath: 'rsc.io/sampler' },
+    ]);
+  });
+
+  it('qualifies a method with its receiver', () => {
     const output = JSON.stringify({
-      finding: { osv: 'GO-0000-00003', trace: [{ package: 'example.com/a' }] },
+      finding: {
+        osv: 'GO-0000-00004',
+        trace: [
+          {
+            module: 'net/http',
+            package: 'net/http',
+            function: 'Write',
+            receiver: 'Response',
+          },
+        ],
+      },
     });
 
     expect(parseScanOutput(output)).toEqual([
-      { id: 'GO-0000-00003', package: 'example.com/a' },
+      { id: 'GO-0000-00004', symbol: 'Response.Write', packagePath: 'net/http' },
     ]);
   });
 });

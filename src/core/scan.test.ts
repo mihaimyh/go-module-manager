@@ -52,7 +52,7 @@ describe('scan state', () => {
       model(),
       MANIFEST,
       [
-        { id: 'GO-0000-00001', symbol: 'sampler.DefaultText', package: 'rsc.io/sampler' },
+        { id: 'GO-0000-00001', symbol: 'sampler.DefaultText', packagePath: 'rsc.io/sampler' },
         { id: 'GO-0000-00077', symbol: 'invented.Function' },
       ],
       '2026-10-09T00:00:00.000Z',
@@ -62,7 +62,7 @@ describe('scan state', () => {
     expect(advisories.find((a) => a.id === 'GO-0000-00001')).toMatchObject({
       reachable: true,
       symbol: 'sampler.DefaultText',
-      package: 'rsc.io/sampler',
+      packagePath: 'rsc.io/sampler',
     });
     expect(advisories.find((a) => a.id === 'GO-0000-00009')?.reachable).toBeUndefined();
     expect(advisories.some((a) => a.id === 'GO-0000-00077')).toBe(false);
@@ -82,5 +82,41 @@ describe('scan state', () => {
 
     expect(next.projects[0]?.scan?.status).toBe('failed');
     expect(hasReachable(next)).toBe(false);
+  });
+});
+
+describe('clearing previous results', () => {
+  it('drops reachability when a rescan finds nothing', () => {
+    const scanned = applyScan(
+      model(),
+      MANIFEST,
+      [{ id: 'GO-0000-00001', symbol: 'sampler.DefaultText' }],
+      '2026-10-09T00:00:00.000Z',
+    );
+    expect(hasReachable(scanned)).toBe(true);
+
+    const rescanned = applyScan(scanned, MANIFEST, [], '2026-10-09T01:00:00.000Z');
+
+    expect(hasReachable(rescanned)).toBe(false);
+    expect(rescanned.rows[0]?.advisories[0]?.reachable).toBeUndefined();
+    expect(rescanned.rows[0]?.advisories[0]?.symbol).toBeUndefined();
+  });
+
+  it('drops reachability when a rescan fails', () => {
+    const scanned = applyScan(
+      model(),
+      MANIFEST,
+      [{ id: 'GO-0000-00001', symbol: 'sampler.DefaultText' }],
+      '2026-10-09T00:00:00.000Z',
+    );
+
+    const failed = markScan(scanned, MANIFEST, {
+      status: 'failed',
+      at: '2026-10-09T01:00:00.000Z',
+      message: 'build failed',
+    });
+
+    expect(hasReachable(failed)).toBe(false);
+    expect(failed.projects[0]?.scan?.message).toBe('build failed');
   });
 });

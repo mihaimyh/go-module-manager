@@ -8,7 +8,7 @@ export interface Advisory {
   /** True only when a call-graph scan found the vulnerable symbol reachable. */
   readonly reachable?: boolean;
   readonly symbol?: string;
-  readonly package?: string;
+  readonly packagePath?: string;
 }
 
 /** One resolved dependency to look up, independent of the project that declared it. */

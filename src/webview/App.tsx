@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { DependencySelection, RecoveryAction, ResolveProgress } from '../core/messages';
 import { advisoryFixOffer } from '../core/advisoryAction';
+import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
@@ -115,9 +116,7 @@ export function App({
     }
     return selected === undefined ? [] : [selected.manifestPath];
   })();
-  const hasReachable = rows.some((row) =>
-    row.advisories.some((advisory) => advisory.reachable === true),
-  );
+  const reachable = model === undefined ? false : hasReachable(model);
   const scanState = (() => {
     if (projects.some((project) => project.scan?.status === 'running')) {
       return 'Scanning reachable code…';
@@ -259,7 +258,7 @@ export function App({
         <TabButton
           label="Vulnerabilities"
           count={advisoryIds.size}
-          tone={hasReachable ? 'danger' : 'warning'}
+          tone={reachable ? 'danger' : 'warning'}
           active={tab === 'vulnerabilities'}
           onClick={() => setTab('vulnerabilities')}
         />
@@ -721,7 +720,7 @@ function AdvisoryCard({
         {advisory.reachable === true ? (
           <p className="reachable-line mono">
             Reachable via {advisory.symbol ?? 'an unnamed symbol'}
-            {advisory.package === undefined ? '' : ` · ${advisory.package}`}
+            {advisory.packagePath === undefined ? '' : ` · ${advisory.packagePath}`}
           </p>
         ) : null}
         <div className="callout-actions">

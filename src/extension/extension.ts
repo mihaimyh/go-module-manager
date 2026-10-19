@@ -418,7 +418,10 @@ async function scanProjects(manifests: readonly string[]): Promise<void> {
       }
       current = {
         ...current,
-        model: markScan(current.model, manifestPath, { status: 'running' }),
+        model: markScan(current.model, manifestPath, {
+          status: 'running',
+          at: new Date().toISOString(),
+        }),
       };
       GmmPanel.update(current.model);
 
@@ -509,15 +512,13 @@ async function fillUpdates(
     return;
   }
 
-  const base = current?.model ?? resolved;
   try {
-    const report = await attachAdvisories(advisoryTargets(base), { fresh });
+    const report = await attachAdvisories(advisoryTargets(resolved), { fresh });
     if (token !== cycle) {
       return;
     }
-    // A failure may have painted while the lookup ran; merge into the latest.
-    const latest = current?.model ?? base;
-    const merged = withAdvisories(latest, report);
+    // A re-read invalidates scan results: reachability is session-only.
+    const merged = withAdvisories(resolved, report);
     current = { ...loaded, model: merged };
     GmmPanel.update(merged);
   } catch (error) {
