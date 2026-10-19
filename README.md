@@ -56,7 +56,10 @@ npm run build     # bundles extension + webview into dist/
 npm run typecheck
 npm test
 npm run package   # produces a .vsix
+npm run install:local   # package + install into Cursor / Code / Insiders on PATH
 ```
+
+`scripts/install-local.sh` checks which of `cursor`, `code`, and `code-insiders` are available, builds a VSIX, and installs it with `--force`. Reload each window afterwards.
 
 Press `F5` to launch the extension host against the fixture workspace in `test/fixtures/workspace`.
 
