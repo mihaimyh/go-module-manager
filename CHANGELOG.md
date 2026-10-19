@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Fixed
+
+- Scan failures report the useful diagnostic instead of the control-character padding that the checksum database leaves in `stderr`, and explain checksum-database failures (`GOPROXY`/`GOSUMDB`). The scan bar clamps long messages.
+
 ## 0.1.5
 
 ### Changed

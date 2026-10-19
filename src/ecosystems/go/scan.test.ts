@@ -91,6 +91,26 @@ describe('scanning a project', () => {
     });
   });
 
+  it('ignores control-character padding and explains checksum failures', async () => {
+    const manifestPath = manifest();
+    const runner = new FakeRunner({
+      stdout: '',
+      stderr: [
+        'go: loading module retractions for cel.dev/expr@v0.25.3: reading tree note: malformed note',
+        'note:',
+        '\u0000\u0000\u0000\u0000\u0000\u0000',
+      ].join('\n'),
+      exitCode: 1,
+    });
+
+    await expect(scanProject(manifestPath, runner)).rejects.toMatchObject({
+      kind: 'verification',
+      message: expect.stringMatching(
+        /^checksum database error while preparing govulncheck.*malformed note$/,
+      ),
+    });
+  });
+
   it('installs the CLI only when asked', async () => {
     const runner = new FakeRunner({ stdout: '', stderr: '', exitCode: 0 });
 

@@ -23,9 +23,13 @@ export async function scanProject(
   });
 
   if (result.exitCode !== 0) {
+    const kind = failureKindFor(result.exitCode, result.stderr);
+    const diagnostic = diagnosticLine(result.stderr);
     throw new GoCommandError(
-      failureKindFor(result.exitCode, result.stderr),
-      `govulncheck failed: ${diagnosticLine(result.stderr)}`,
+      kind,
+      kind === 'verification'
+        ? `checksum database error while preparing govulncheck; check GOPROXY/GOSUMDB. ${diagnostic}`
+        : `govulncheck failed: ${diagnostic}`,
     );
   }
 
@@ -107,11 +111,21 @@ export function parseScanOutput(stdout: string): readonly CallGraphFinding[] {
   return findings;
 }
 
-/** Drops the module-download chatter so a failure shows the real cause. */
+/** Drops download chatter and control-character padding from the real cause. */
 function diagnosticLine(stderr: string): string {
   const lines = stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !/^go: downloading\b/.test(line));
-  return lines.at(-1) ?? firstLine(stderr);
+    .filter(
+      (line) =>
+        line !== '' &&
+        !/^go: downloading\b/.test(line) &&
+        !/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(line),
+    );
+
+  const goLine = [...lines]
+    .reverse()
+    .find((line) => /^(go|govulncheck|error|fatal):/i.test(line));
+  const chosen = goLine ?? lines.at(-1) ?? firstLine(stderr);
+  return chosen.length > 300 ? `${chosen.slice(0, 300)}…` : chosen;
 }
