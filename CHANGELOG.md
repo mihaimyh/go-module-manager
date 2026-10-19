@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.25
+
+### Added
+
+- Inspector explains commit pins: when the selected version is a pseudo-version and there is no tagged candidate, it says there is no newer tagged release (ADR 0012 — updates still come from `go list -m -u`, not GitHub).
+
 ## 0.1.24
 
 ### Fixed
