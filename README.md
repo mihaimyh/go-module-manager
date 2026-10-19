@@ -1,22 +1,44 @@
 # GMM — Go Module Manager
 
-A VS Code extension that shows the dependencies of a Go workspace — direct, indirect, outdated, or affected by a known advisory — and moves them to other versions without touching code you did not ask it to touch.
+GMM shows the dependencies of every `go.mod` in your workspace and moves them to other versions — without touching code you did not ask it to touch.
 
-Status: pre-0.1, skeleton only. Nothing is published yet.
+![The GMM panel](assets/panel.png)
 
-## What it does today
+## What it does
 
-- Opens a panel listing every requirement of every `go.mod` in the workspace, read live from the go toolchain, with the owning module per row.
-- Shows the declared version and the indirect flag; resolved versions, update candidates and their patch/minor/major classification arrive with the update lookup.
-- Shows available updates filling in per project after the panel opens, cached by the content of `go.mod` and `go.sum`.
-- Writes and scans are the next tickets; nothing is modified yet.
+- Lists every project in the workspace and its direct and indirect dependencies, read live from the Go toolchain.
+- Fills in available updates in the background, cached by the content of `go.mod` and `go.sum`.
+- Shows published advisories as an amber **advisory** chip, and — only after you ask — the ones reachable from your own code as a red **reachable** chip with the symbol that reaches them.
+- Updates a single dependency or a whole selection: one `go get` per project, with one level of undo.
+- Runs `go mod tidy` only from its own confirmed button. Never after an update.
+- Sends no telemetry, runs no builds or tests, and never edits `.go` files.
 
-## What it will not do
+## Requirements
 
-- Run `go mod tidy` for you as part of an update.
-- Rewrite `.go` imports automatically.
-- Write to `go.work`.
-- Browse or install packages in v1.
+- Go 1.21 or newer on `PATH` (or set `gmm.goPath`).
+- VS Code 1.85 or newer.
+
+## Usage
+
+1. Open a folder that contains one or more `go.mod` files.
+2. Press the GMM button in the editor title while a `go.mod` is open, or run **GMM: Open Go Module Manager** from the Command Palette.
+3. Declared versions appear immediately; updates fill in per project.
+4. Select rows to update them together, or open the inspector to pick a version.
+5. Open **Vulnerabilities** and press **Scan reachable** for a precise check.
+
+The precise scan runs `go run golang.org/x/vuln/cmd/govulncheck@latest`, so it never depends on an installed binary and always uses the current scanner. Installing the CLI is a separate, optional action.
+
+## Settings
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `gmm.goPath` | `go` | Path to the Go executable. |
+
+## Scope
+
+v0.1 covers reading, updating, tidying and advisory checking for Go modules. Not included yet: browsing or installing new modules, consolidation writes across a workspace, major-version import migration, and other ecosystems.
+
+Private module paths matching `GOPRIVATE` / `GONOPROXY` are never sent to the advisory database.
 
 ## Development
 
@@ -28,6 +50,6 @@ npm test
 npm run package   # produces a .vsix
 ```
 
-Press `F5` to launch the extension host against the fixture workspace.
+Press `F5` to launch the extension host against the fixture workspace in `test/fixtures/workspace`.
 
-Decisions live in `docs/adr/`, vocabulary in `GLOSSARY.md`, scope in `docs/design.md`.
+Architecture: `src/core` is ecosystem-neutral, `src/ecosystems/go` holds everything Go-specific, `src/extension` is the VS Code host and `src/webview` is the panel. Decisions live in `docs/adr/`, vocabulary in `GLOSSARY.md`, scope in `docs/design.md`.

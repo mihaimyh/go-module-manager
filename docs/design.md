@@ -44,6 +44,6 @@ Browse (pkg.go.dev `/v1/search`), consolidation writes (`go work sync`), major-v
 ## Known unknowns
 
 - `GOWORK=off` write behaviour was verified on one probe workspace; re-verify on fixtures before trusting it in CI.
-- Publisher id, icon and README screenshot are required before publishing.
+- The product name is decided before the first Marketplace publish, not after.
 - `govulncheck` run cost and failure modes on projects that do not currently build.
 - Windows path casing when matching module directories to `go.mod` files.
