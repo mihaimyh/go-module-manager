@@ -4,6 +4,14 @@ GMM shows the dependencies of every `go.mod` in your workspace and moves them to
 
 ![The GMM panel](assets/panel.png)
 
+## Install
+
+```sh
+code --install-extension mihaimyh.go-module-manager
+```
+
+Or search for **GMM** in the Extensions view. Marketplace page: [mihaimyh.go-module-manager](https://marketplace.visualstudio.com/items?itemName=mihaimyh.go-module-manager).
+
 ## What it does
 
 - Lists every project in the workspace and its direct and indirect dependencies, read live from the Go toolchain.
@@ -51,5 +59,14 @@ npm run package   # produces a .vsix
 ```
 
 Press `F5` to launch the extension host against the fixture workspace in `test/fixtures/workspace`.
+
+Publishing uses Microsoft Entra ID from a developer machine:
+
+```sh
+az login
+npx vsce publish --no-dependencies --azure-credential
+```
+
+CI only attaches the VSIX to the GitHub release; global Azure DevOps PATs are retired on 2026-12-01.
 
 Architecture: `src/core` is ecosystem-neutral, `src/ecosystems/go` holds everything Go-specific, `src/extension` is the VS Code host and `src/webview` is the panel. Decisions live in `docs/adr/`, vocabulary in `GLOSSARY.md`, scope in `docs/design.md`.
