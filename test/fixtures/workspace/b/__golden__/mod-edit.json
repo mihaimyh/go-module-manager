@@ -1,0 +1,22 @@
+{
+	"Module": {
+		"Path": "example.com/b"
+	},
+	"Go": "1.21",
+	"Require": [
+		{
+			"Path": "rsc.io/quote",
+			"Version": "v1.5.2"
+		},
+		{
+			"Path": "golang.org/x/text",
+			"Version": "v0.0.0-20170915032832-14c0d48ead0c",
+			"Indirect": true
+		},
+		{
+			"Path": "rsc.io/sampler",
+			"Version": "v1.3.0",
+			"Indirect": true
+		}
+	]
+}

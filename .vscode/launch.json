@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run GMM",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "npm: build",
+      "env": {
+        "GMM_FIXTURE_DIR": "${workspaceFolder}/test/fixtures/workspace"
+      }
+    }
+  ]
+}
