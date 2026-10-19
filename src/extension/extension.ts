@@ -20,8 +20,8 @@ export function deactivate(): void {
 }
 
 /**
- * Until the execution layer lands, the model comes from recorded `go` output.
- * `GMM_FIXTURE_DIR` lets the launch configuration point at the fixture workspace.
+ * `GMM_WORKSPACE_ROOT` lets the launch configuration point at a sample
+ * workspace while developing the extension itself.
  */
 async function loadModel(): Promise<PanelModel | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -30,9 +30,7 @@ async function loadModel(): Promise<PanelModel | undefined> {
     return undefined;
   }
 
-  const root =
-    process.env.GMM_FIXTURE_DIR ??
-    vscode.Uri.joinPath(folder.uri, 'test', 'fixtures', 'workspace').fsPath;
+  const root = process.env.GMM_WORKSPACE_ROOT ?? folder.uri.fsPath;
 
   try {
     const [adapter] = detectAdapters(root);

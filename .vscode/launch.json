@@ -9,7 +9,7 @@
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "npm: build",
       "env": {
-        "GMM_FIXTURE_DIR": "${workspaceFolder}/test/fixtures/workspace"
+        "GMM_WORKSPACE_ROOT": "${workspaceFolder}/test/fixtures/workspace"
       }
     }
   ]
