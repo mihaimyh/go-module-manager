@@ -43,9 +43,42 @@ export function firstLine(text: string): string {
   return line?.trim() ?? 'the go command failed without output';
 }
 
+/** One finished go invocation, emitted for the Output channel. */
+export interface GoInvocation {
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly exitCode: number;
+  readonly timedOut: boolean;
+  readonly durationMs: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+let invocationSink: ((invocation: GoInvocation) => void) | undefined;
+
+/**
+ * Diagnostics only: the host installs a sink so every go command and its
+ * failure output lands in Output → Go Module Manager. A broken sink must never
+ * break a command.
+ */
+export function setGoInvocationSink(
+  sink: ((invocation: GoInvocation) => void) | undefined,
+): void {
+  invocationSink = sink;
+}
+
+function emit(invocation: GoInvocation): void {
+  try {
+    invocationSink?.(invocation);
+  } catch {
+    // Diagnostics cannot fail the operation they observe.
+  }
+}
+
 export function createExecGoRunner(goPath = 'go'): GoRunner {
   return {
     run(args, options) {
+      const startedAt = Date.now();
       return new Promise<RunResult>((resolve, reject) => {
         execFile(
           goPath,
@@ -60,6 +93,15 @@ export function createExecGoRunner(goPath = 'go'): GoRunner {
           },
           (error, stdout, stderr) => {
             if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+              emit({
+                args,
+                cwd: options.cwd,
+                exitCode: -1,
+                timedOut: false,
+                durationMs: Date.now() - startedAt,
+                stdout,
+                stderr: `executable not found: ${goPath}`,
+              });
               reject(new GoNotFoundError(goPath));
               return;
             }
@@ -69,6 +111,16 @@ export function createExecGoRunner(goPath = 'go'): GoRunner {
               code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' &&
               error !== null &&
               (error.killed === true || error.signal === 'SIGTERM');
+
+            emit({
+              args,
+              cwd: options.cwd,
+              exitCode: error ? (timedOut ? 124 : typeof code === 'number' ? code : 1) : 0,
+              timedOut,
+              durationMs: Date.now() - startedAt,
+              stdout,
+              stderr,
+            });
 
             resolve({
               stdout,

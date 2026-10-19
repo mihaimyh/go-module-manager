@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.13
+
+### Added
+
+- **Output → Go Module Manager** now logs every `go` command: arguments, working directory, exit code, duration, and the full stdout/stderr when it fails. It also records the toolchain settings that decide whether a download works: `GOPROXY`, `GOSUMDB`, `GOFLAGS`, `GOPRIVATE`, `GONOPROXY` and the Go version.
+- A failed update names its first error in the notification and offers **Show log**. Updating a single dependency now reports failure too, instead of failing silently.
 ## 0.1.12
 
 ### Added

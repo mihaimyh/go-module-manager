@@ -13,7 +13,7 @@ import {
 import { resolveProjects } from '../core/updates';
 import { applyScan, markScan } from '../core/scan';
 import { detectAdapters } from '../ecosystems';
-import { createExecGoRunner } from '../ecosystems/go/runner';
+import { createExecGoRunner, setGoInvocationSink, type GoInvocation } from '../ecosystems/go/runner';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
 import { FileAdvisoryCache } from './advisoryCache';
@@ -32,10 +32,19 @@ let updating = false;
 let advisorySource: AdvisorySource | undefined;
 let advisorySourcePath: string | undefined;
 let handlers: PanelHandlers | undefined;
+let output: vscode.OutputChannel | undefined;
+let environmentLogged = false;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 
 export function activate(context: vscode.ExtensionContext): void {
+  output = vscode.window.createOutputChannel('Go Module Manager');
+  context.subscriptions.push(output, {
+    dispose: () => setGoInvocationSink(undefined),
+  });
+  setGoInvocationSink(logInvocation);
+  output.appendLine(`Go Module Manager ${context.extension.packageJSON.version as string}`);
+
   handlers = createHandlers(context);
 
   const viewProvider = new GmmViewProvider({
@@ -95,6 +104,66 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
 
 export function deactivate(): void {
   // Nothing to tear down: the panel and the watcher own their disposables.
+}
+
+function logInvocation(invocation: GoInvocation): void {
+  if (output === undefined) {
+    return;
+  }
+  output.appendLine(`[${new Date().toLocaleTimeString()}] go ${invocation.args.join(' ')}`);
+  output.appendLine(`  cwd: ${invocation.cwd}`);
+  output.appendLine(
+    `  exit: ${invocation.exitCode}${invocation.timedOut ? ' (timed out)' : ''} in ${(
+      invocation.durationMs / 1000
+    ).toFixed(2)}s`,
+  );
+  if (invocation.exitCode !== 0) {
+    appendOutput('stdout', invocation.stdout);
+    appendOutput('stderr', invocation.stderr);
+  }
+}
+
+function appendOutput(label: string, text: string): void {
+  const trimmed = text.trim();
+  if (trimmed === '') {
+    return;
+  }
+  const clipped =
+    trimmed.length > 8000 ? `${trimmed.slice(0, 8000)}\n… truncated` : trimmed;
+  for (const line of clipped.split(/\r?\n/)) {
+    output?.appendLine(`  ${label}: ${line}`);
+  }
+}
+
+/** A failed update names its reason and offers the full command log. */
+function showUpdateFailure(summary: string, detail: string): void {
+  const first = detail.trim() === '' ? 'the go command failed without output' : detail.trim();
+  const clipped = first.length > 240 ? `${first.slice(0, 240)}…` : first;
+  void vscode.window.showErrorMessage(`${summary} ${clipped}`, 'Show log').then((choice) => {
+    if (choice === 'Show log') {
+      output?.show(true);
+    }
+  });
+}
+
+/** Logs the toolchain settings that decide whether a download or a sumdb check works. */
+function logGoEnvironment(goPath: string, cwd: string): void {
+  if (environmentLogged) {
+    return;
+  }
+  environmentLogged = true;
+  const keys = ['GOPROXY', 'GOSUMDB', 'GOFLAGS', 'GOPRIVATE', 'GONOPROXY', 'GOVERSION'];
+  void createExecGoRunner(goPath)
+    .run(['env', ...keys], { cwd, env: process.env, timeoutMs: 15_000 })
+    .then((result) => {
+      const values = result.stdout.split(/\r?\n/);
+      output?.appendLine(
+        `go env: ${keys.map((key, index) => `${key}=${values[index] ?? ''}`).join(' ')}`,
+      );
+    })
+    .catch((error: unknown) => {
+      output?.appendLine(`go env failed: ${messageOf(error)}`);
+    });
 }
 
 async function openPanel(context: vscode.ExtensionContext): Promise<void> {
@@ -253,6 +322,11 @@ async function runGroups(
 
   for (const group of groups) {
     let result: UpdateResult;
+    output?.appendLine(
+      `update ${group.manifestPath}: ${group.changes
+        .map((change) => `${change.name}@${change.version}`)
+        .join(', ')}`,
+    );
     try {
       result = await update(group);
     } catch (error) {
@@ -263,6 +337,9 @@ async function runGroups(
     // dependency at a time so the healthy ones still move; every retry reuses
     // the snapshot taken before the group.
     if (result.status === 'failed' && group.changes.length > 1) {
+      output?.appendLine(
+        `group failed, retrying one by one: ${result.message ?? 'no message'}`,
+      );
       for (const change of group.changes) {
         try {
           results.push(
@@ -284,6 +361,14 @@ async function runGroups(
     } else {
       results.push(result);
     }
+  }
+
+  for (const result of results) {
+    output?.appendLine(
+      `result ${result.manifestPath}: ${result.status}${
+        result.message === undefined ? '' : ` — ${result.message}`
+      }`,
+    );
   }
 
   await refresh(context, false);
@@ -350,7 +435,11 @@ async function updateDependency(
     const results = await runGroups(context, loaded.adapter, [request]);
     const result = results[0];
     const change = request.changes[0];
-    if (result === undefined || result.status === 'failed' || change === undefined) {
+    if (result === undefined || change === undefined) {
+      return;
+    }
+    if (result.status === 'failed') {
+      showUpdateFailure(`GMM: ${change.name} could not be updated.`, result.message ?? '');
       return;
     }
 
@@ -424,8 +513,9 @@ async function bulkUpdate(
     const succeeded = results.filter((result) => result.status === 'updated');
 
     if (failed.length > 0) {
-      void vscode.window.showErrorMessage(
+      showUpdateFailure(
         `GMM: ${failed.length} of ${results.length} dependency updates failed.`,
+        failed[0]?.message ?? '',
       );
     }
     if (succeeded.length === 0) {
@@ -669,11 +759,13 @@ async function loadModel(
       ? process.env.GMM_WORKSPACE_ROOT
       : undefined;
   const root = developmentRoot ?? folder.uri.fsPath;
+  output?.appendLine(`workspace: ${root}`);
 
   let adapter: EcosystemAdapter | undefined;
 
   try {
     const goPath = vscode.workspace.getConfiguration('gmm').get<string>('goPath') ?? 'go';
+    logGoEnvironment(goPath, root);
     const [detected] = detectAdapters(root, {
       goPath,
       advisories: ensureAdvisorySource(context, goPath),
