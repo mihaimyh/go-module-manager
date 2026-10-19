@@ -38,9 +38,16 @@ interface AppProps {
   readonly progress?: ResolveProgress;
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
+  readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }
 
-export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.Element {
+export function App({
+  model,
+  progress,
+  onRefresh,
+  onRecover,
+  onUpdate,
+}: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('dependencies');
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -309,7 +316,11 @@ export function App({ model, progress, onRefresh, onRecover }: AppProps): JSX.El
         </section>
 
         <aside className="inspector" aria-label="Details">
-          {selected ? <Inspector row={selected} /> : <p className="empty">Select a module.</p>}
+          {selected ? (
+            <Inspector key={selected.id} row={selected} onUpdate={onUpdate} />
+          ) : (
+            <p className="empty">Select a module.</p>
+          )}
         </aside>
       </main>
     </div>
@@ -394,7 +405,13 @@ function Row({
         )}
       </td>
       <td className="col-update">
-        <Candidate row={row} unresolved={unresolved} />
+        {row.error === undefined ? (
+          <Candidate row={row} unresolved={unresolved} />
+        ) : (
+          <span className="row-error mono" title={row.error}>
+            {row.error}
+          </span>
+        )}
       </td>
       <td className="col-actions" onClick={(event) => event.stopPropagation()}>
         <details className="row-menu">
@@ -462,10 +479,17 @@ function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
   return <p className="empty">Nothing matches those filters.</p>;
 }
 
-function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
+function Inspector({
+  row,
+  onUpdate,
+}: {
+  readonly row: DependencyRow;
+  readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
+}): JSX.Element {
   const versions = Array.from(
     new Set([row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString)),
   );
+  const [version, setVersion] = useState(versions[0] ?? row.declaredVersion);
 
   return (
     <div className="inspector-body">
@@ -523,10 +547,14 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
 
       <div className="controls">
         <div className="select grow">
-          <select key={row.id} aria-label="Version to install" defaultValue={versions[0]}>
-            {versions.map((version) => (
-              <option key={version} value={version}>
-                {version}
+          <select
+            aria-label="Version to install"
+            value={version}
+            onChange={(event) => setVersion(event.target.value)}
+          >
+            {versions.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {candidate}
               </option>
             ))}
           </select>
@@ -537,8 +565,7 @@ function Inspector({ row }: { readonly row: DependencyRow }): JSX.Element {
         <button
           type="button"
           className="button primary"
-          disabled
-          title="Update engine lands in the next step"
+          onClick={() => onUpdate(row.manifestPath, row.name, version)}
         >
           Update
         </button>

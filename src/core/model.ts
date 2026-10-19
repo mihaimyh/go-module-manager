@@ -43,6 +43,8 @@ export interface DependencyRow {
   readonly candidate?: string;
   readonly kind: UpdateKind;
   readonly advisories: readonly Advisory[];
+  /** The last failed update for this row, shown until the next read. */
+  readonly error?: string;
 }
 
 /** What the ecosystem's resolver decided for one project. */
@@ -166,6 +168,21 @@ function withFailures(
 
 export function mergeFailure(model: PanelModel, failure: ProjectFailure): PanelModel {
   return { ...model, projects: withFailures(model.projects, [failure]) };
+}
+
+/** A failed update stays on its row until the next read replaces the model. */
+export function mergeRowError(
+  model: PanelModel,
+  manifestPath: string,
+  name: string,
+  message: string,
+): PanelModel {
+  return {
+    ...model,
+    rows: model.rows.map((row) =>
+      row.manifestPath === manifestPath && row.name === name ? { ...row, error: message } : row,
+    ),
+  };
 }
 
 /**

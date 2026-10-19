@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assemblePanelModel,
   mergeResolution,
+  mergeRowError,
   type Advisory,
   type DependencyInput,
   type ProjectInput,
@@ -135,8 +136,7 @@ describe('project failures', () => {
     expect(model.projects[0]?.failure?.message).toMatch(/errors parsing/);
   });
 
-  it('clears the failure once the project resolves', () => {
-    const failed = assemblePanelModel(
+  it('clears the failure once the project resolves', () => {    const failed = assemblePanelModel(
       project([{ name: 'rsc.io/quote', version: 'v1.5.1' }]),
       new Map(),
       {
@@ -160,8 +160,7 @@ describe('project failures', () => {
   });
 });
 
-describe('mergeResolution', () => {
-  const declared = assemblePanelModel(
+describe('mergeResolution', () => {  const declared = assemblePanelModel(
     project([
       { name: 'rsc.io/quote', version: 'v1.5.1' },
       { name: 'rsc.io/sampler', version: 'v1.3.0', transitive: true },
@@ -221,5 +220,24 @@ describe('mergeResolution', () => {
 
     expect(hidden.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBeUndefined();
     expect(shown.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBe('v2.0.0-rc.1');
+  });
+});
+
+describe('mergeRowError', () => {
+  it('puts a failed update message on its own row', () => {
+    const base = assemblePanelModel(
+      project([
+        { name: 'rsc.io/quote', version: 'v1.5.1' },
+        { name: 'rsc.io/sampler', version: 'v1.3.0' },
+      ]),
+      new Map(),
+    );
+
+    const model = mergeRowError(base, MANIFEST, 'rsc.io/quote', 'go: permission denied');
+
+    expect(model.rows.find((row) => row.name === 'rsc.io/quote')?.error).toMatch(
+      /permission denied/,
+    );
+    expect(model.rows.find((row) => row.name === 'rsc.io/sampler')?.error).toBeUndefined();
   });
 });

@@ -21,4 +21,10 @@ export type WebviewToHost =
       readonly type: 'recover';
       readonly manifestPath: string;
       readonly action: RecoveryAction;
+    }
+  | {
+      readonly type: 'update';
+      readonly manifestPath: string;
+      readonly name: string;
+      readonly version: string;
     };

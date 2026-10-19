@@ -562,6 +562,16 @@ tbody th.col-module {
   color: var(--gmm-muted);
 }
 
+.row-error {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
 /* Inspector */
 
 .inspector {

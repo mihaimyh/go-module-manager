@@ -5,6 +5,20 @@ export interface ResolveOptions {
   readonly fresh?: boolean;
 }
 
+export interface UpdateRequest {
+  readonly manifestPath: string;
+  readonly name: string;
+  readonly version: string;
+}
+
+export interface UpdateOutcome {
+  readonly manifestPath: string;
+  readonly name: string;
+  readonly version: string;
+  readonly status: 'updated' | 'failed';
+  readonly message?: string;
+}
+
 /**
  * The single seam between the panel and a dependency ecosystem.
  *
@@ -19,6 +33,10 @@ export interface EcosystemAdapter {
   resolve?(manifestPath: string, options?: ResolveOptions): Promise<ResolvedProject>;
   /** Recovery for a missing lock entry; bounded to the owning project. */
   repair?(manifestPath: string): Promise<void>;
+  /** Moves one dependency, writing only that project's manifest and lock file. */
+  update?(request: UpdateRequest): Promise<UpdateOutcome>;
+  /** Restores the snapshot taken before the last update of that project. */
+  undo?(manifestPath: string): Promise<boolean>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

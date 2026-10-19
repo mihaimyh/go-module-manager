@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
+import type { UpdateRequest } from '../core/adapter';
 import type { HostToWebview, RecoveryAction, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 
@@ -10,6 +11,7 @@ import type { PanelModel } from '../core/model';
 export interface PanelHandlers {
   readonly onRefresh: () => void;
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
+  readonly onUpdate: (request: UpdateRequest) => void;
 }
 
 export class GmmPanel {
@@ -26,7 +28,13 @@ export class GmmPanel {
   ) {
     panel.webview.html = renderHtml(panel.webview, extensionUri);
     panel.webview.onDidReceiveMessage(
-      (message: { type?: string; manifestPath?: string; action?: string }) => {
+      (message: {
+        type?: string;
+        manifestPath?: string;
+        action?: string;
+        name?: string;
+        version?: string;
+      }) => {
         if (message.type === 'ready') {
           this.post();
         }
@@ -41,6 +49,18 @@ export class GmmPanel {
             message.action === 'install')
         ) {
           this.handlers.onRecover(message.manifestPath, message.action);
+        }
+        if (
+          message.type === 'update' &&
+          typeof message.manifestPath === 'string' &&
+          typeof message.name === 'string' &&
+          typeof message.version === 'string'
+        ) {
+          this.handlers.onUpdate({
+            manifestPath: message.manifestPath,
+            name: message.name,
+            version: message.version,
+          });
         }
       },
       undefined,

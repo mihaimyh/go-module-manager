@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import type { EcosystemAdapter } from '../core/adapter';
+import type { EcosystemAdapter, UpdateRequest } from '../core/adapter';
 import type { RecoveryAction } from '../core/messages';
-import { mergeFailure, type FailureKind, type PanelModel } from '../core/model';
+import { mergeFailure, mergeRowError, type FailureKind, type PanelModel } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
@@ -46,6 +46,9 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
       },
       onRecover: (manifestPath, action) => {
         recover(context, manifestPath, action);
+      },
+      onUpdate: (request) => {
+        void updateDependency(context, request);
       },
     },
   );
@@ -127,6 +130,51 @@ function openToolchainPage(adapter: EcosystemAdapter): void {
     return;
   }
   void vscode.env.openExternal(vscode.Uri.parse(adapter.toolchainUrl));
+}
+
+async function updateDependency(
+  context: vscode.ExtensionContext,
+  request: UpdateRequest,
+): Promise<void> {
+  const loaded = current;
+  const update = loaded?.adapter.update;
+  if (loaded === undefined || update === undefined) {
+    return;
+  }
+
+  const outcome = await update(request);
+
+  if (outcome.status === 'failed') {
+    if (current !== loaded) {
+      return;
+    }
+    current = {
+      ...loaded,
+      model: mergeRowError(
+        loaded.model,
+        request.manifestPath,
+        request.name,
+        outcome.message ?? 'go get failed',
+      ),
+    };
+    GmmPanel.update(current.model);
+    return;
+  }
+
+  await refresh(context, false);
+
+  const undo = loaded.adapter.undo;
+  if (undo === undefined) {
+    return;
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    `GMM: ${request.name} updated to ${request.version}`,
+    'Undo',
+  );
+  if (choice === 'Undo' && (await undo(request.manifestPath))) {
+    await refresh(context, false);
+  }
 }
 
 async function fillUpdates(loaded: LoadedModel, fresh: boolean): Promise<void> {

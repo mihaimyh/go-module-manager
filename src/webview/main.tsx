@@ -36,12 +36,18 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onUpdate = (manifestPath: string, name: string, version: string): void => {
+    const message: WebviewToHost = { type: 'update', manifestPath, name, version };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
       progress={state.progress}
       onRefresh={onRefresh}
       onRecover={onRecover}
+      onUpdate={onUpdate}
     />
   );
 }
