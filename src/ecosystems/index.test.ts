@@ -34,4 +34,13 @@ describe('detectAdapters', () => {
 
     expect(detectAdapters(root).map((adapter) => adapter.id)).toEqual(['go']);
   });
+
+  it('reuses the adapter so its cache and undo snapshot survive a reload', () => {
+    const root = newWorkspace();
+    const module = join(root, 'api');
+    mkdirSync(module, { recursive: true });
+    writeFileSync(join(module, 'go.mod'), 'module example.com/api\n');
+
+    expect(detectAdapters(root)[0]).toBe(detectAdapters(root)[0]);
+  });
 });

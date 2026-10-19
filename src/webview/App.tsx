@@ -405,11 +405,11 @@ function Row({
         )}
       </td>
       <td className="col-update">
-        {row.error === undefined ? (
+        {row.failure === undefined ? (
           <Candidate row={row} unresolved={unresolved} />
         ) : (
-          <span className="row-error mono" title={row.error}>
-            {row.error}
+          <span className="row-error mono" title={row.failure}>
+            {row.failure}
           </span>
         )}
       </td>
@@ -489,7 +489,7 @@ function Inspector({
   const versions = Array.from(
     new Set([row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString)),
   );
-  const [version, setVersion] = useState(versions[0] ?? row.declaredVersion);
+  const [version, setVersion] = useState(versions[0]);
 
   return (
     <div className="inspector-body">
@@ -565,6 +565,12 @@ function Inspector({
         <button
           type="button"
           className="button primary"
+          disabled={version === row.resolvedVersion}
+          title={
+            version === row.resolvedVersion
+              ? 'Already resolved at this version'
+              : `Run go get ${row.name}@${version}`
+          }
           onClick={() => onUpdate(row.manifestPath, row.name, version)}
         >
           Update

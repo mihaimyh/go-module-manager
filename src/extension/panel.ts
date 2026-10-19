@@ -56,11 +56,17 @@ export class GmmPanel {
           typeof message.name === 'string' &&
           typeof message.version === 'string'
         ) {
-          this.handlers.onUpdate({
-            manifestPath: message.manifestPath,
-            name: message.name,
-            version: message.version,
-          });
+          // Only rows the host already knows about may be written.
+          const known = this.model.rows.some(
+            (row) => row.manifestPath === message.manifestPath && row.name === message.name,
+          );
+          if (known) {
+            this.handlers.onUpdate({
+              manifestPath: message.manifestPath,
+              name: message.name,
+              version: message.version,
+            });
+          }
         }
       },
       undefined,

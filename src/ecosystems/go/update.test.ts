@@ -97,8 +97,9 @@ describe('updating one dependency', () => {
       writeFileSync(join(cwd, 'go.mod'), 'module example.com/a\n\n// partially written\n');
       return { stdout: '', stderr: 'go: missing go.sum entry', exitCode: 1 };
     });
+    const updater = createUpdater(runner);
 
-    const outcome = await createUpdater(runner).update({
+    const outcome = await updater.update({
       manifestPath,
       name: 'rsc.io/quote',
       version: 'v1.5.2',
@@ -107,5 +108,6 @@ describe('updating one dependency', () => {
     expect(outcome.status).toBe('failed');
     expect(outcome.message).toMatch(/missing go\.sum entry/);
     expect(readFileSync(manifestPath, 'utf8')).toBe('module example.com/a\n\n// partially written\n');
+    expect(await updater.undo(manifestPath)).toBe(false);
   });
 });

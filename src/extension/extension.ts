@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { EcosystemAdapter, UpdateRequest } from '../core/adapter';
 import type { RecoveryAction } from '../core/messages';
-import { mergeFailure, mergeRowError, type FailureKind, type PanelModel } from '../core/model';
+import { mergeFailure, mergeRowFailure, type FailureKind, type PanelModel } from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
@@ -132,48 +132,81 @@ function openToolchainPage(adapter: EcosystemAdapter): void {
   void vscode.env.openExternal(vscode.Uri.parse(adapter.toolchainUrl));
 }
 
+let updating = false;
+
 async function updateDependency(
   context: vscode.ExtensionContext,
   request: UpdateRequest,
 ): Promise<void> {
   const loaded = current;
   const update = loaded?.adapter.update;
-  if (loaded === undefined || update === undefined) {
+  if (loaded === undefined || update === undefined || updating) {
     return;
   }
 
-  const outcome = await update(request);
-
-  if (outcome.status === 'failed') {
-    if (current !== loaded) {
+  updating = true;
+  try {
+    let outcome;
+    try {
+      outcome = await update(request);
+    } catch (error) {
+      showFailure(request.manifestPath, error);
       return;
     }
-    current = {
-      ...loaded,
-      model: mergeRowError(
-        loaded.model,
-        request.manifestPath,
-        request.name,
-        outcome.message ?? 'go get failed',
-      ),
-    };
-    GmmPanel.update(current.model);
-    return;
-  }
 
-  await refresh(context, false);
-
-  const undo = loaded.adapter.undo;
-  if (undo === undefined) {
-    return;
-  }
-
-  const choice = await vscode.window.showInformationMessage(
-    `GMM: ${request.name} updated to ${request.version}`,
-    'Undo',
-  );
-  if (choice === 'Undo' && (await undo(request.manifestPath))) {
+    // The toolchain can leave files written even when it fails: re-read either way.
     await refresh(context, false);
+
+    const fresh = current;
+    if (fresh === undefined) {
+      return;
+    }
+
+    if (outcome.status === 'failed') {
+      const message = outcome.message ?? 'go get failed';
+      current = {
+        ...fresh,
+        model: mergeRowFailure(
+          fresh.model,
+          request.manifestPath,
+          request.name,
+          message,
+        ),
+      };
+      GmmPanel.update(current.model);
+      return;
+    }
+
+    // Report what the toolchain resolved, not what was requested.
+    const resolved = fresh.model.rows.find(
+      (row) => row.manifestPath === request.manifestPath && row.name === request.name,
+    )?.resolvedVersion;
+    const undo = loaded.adapter.undo;
+    if (undo === undefined) {
+      return;
+    }
+
+    const choice = await vscode.window.showInformationMessage(
+      resolved === undefined
+        ? `GMM: ${request.name} updated`
+        : `GMM: ${request.name} resolved to ${resolved}`,
+      'Undo',
+    );
+    if (choice !== 'Undo') {
+      return;
+    }
+
+    try {
+      if (await undo(request.manifestPath)) {
+        await refresh(context, false);
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `GMM: undo failed. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } finally {
+    updating = false;
   }
 }
 

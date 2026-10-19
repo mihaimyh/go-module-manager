@@ -37,6 +37,7 @@ export function createUpdater(runner: GoRunner): GoUpdater {
       );
 
       if (result.exitCode !== 0) {
+        snapshots.delete(request.manifestPath);
         return {
           ...request,
           status: 'failed',
@@ -61,19 +62,21 @@ export function createUpdater(runner: GoRunner): GoUpdater {
 
 function snapshotOf(manifestPath: string): Snapshot {
   const goMod = readFileSync(manifestPath, 'utf8');
-  const sumPath = join(dirname(manifestPath), 'go.sum');
-  return existsSync(sumPath)
-    ? { goMod, goSum: readFileSync(sumPath, 'utf8') }
-    : { goMod };
+  const sumPath = sumPathOf(manifestPath);
+  return existsSync(sumPath) ? { goMod, goSum: readFileSync(sumPath, 'utf8') } : { goMod };
 }
 
 function restore(manifestPath: string, snapshot: Snapshot): void {
   writeFileSync(manifestPath, snapshot.goMod);
 
-  const sumPath = join(dirname(manifestPath), 'go.sum');
+  const sumPath = sumPathOf(manifestPath);
   if (snapshot.goSum === undefined) {
     rmSync(sumPath, { force: true });
   } else {
     writeFileSync(sumPath, snapshot.goSum);
   }
+}
+
+function sumPathOf(manifestPath: string): string {
+  return join(dirname(manifestPath), 'go.sum');
 }
