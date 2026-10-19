@@ -93,6 +93,7 @@ export type FailureKind =
   | 'missing-lock-entry'
   | 'toolchain-missing'
   | 'auth-required'
+  | 'network'
   | 'timeout'
   | 'unknown';
 

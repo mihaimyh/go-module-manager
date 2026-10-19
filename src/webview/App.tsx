@@ -29,6 +29,7 @@ const RECOVERY: Record<FailureKind, { readonly action: RecoveryAction; readonly 
   'missing-lock-entry': { action: 'repair', label: 'Run go mod download' },
   'toolchain-missing': { action: 'install', label: 'Install Go' },
   'auth-required': { action: 'retry', label: 'Retry' },
+  network: { action: 'retry', label: 'Retry' },
   timeout: { action: 'retry', label: 'Retry' },
   unknown: { action: 'retry', label: 'Retry' },
 };

@@ -7,6 +7,8 @@ describe('classifying a go failure', () => {
     ['fatal: could not read Username for https://github.com', 'auth-required'],
     ['terminal prompts disabled', 'auth-required'],
     ['403 Forbidden', 'auth-required'],
+    ['dial tcp: lookup proxy.golang.org: getaddrinfow: This is usually a temporary error', 'network'],
+    ['Get "https://proxy.golang.org/x/@v/list": dial tcp: i/o timeout', 'network'],
     ['something else entirely', 'unknown'],
   ])('maps %s to %s', (stderr, expected) => {
     expect(failureKindFor(1, stderr)).toBe(expected);

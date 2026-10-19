@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Fixed
+
+- Network failures while checking updates (DNS lookup, unreachable proxy) are classified as `network` and offer Retry, instead of a generic failure.
+- The webview CSP allows the host's worker registration, which Cursor sometimes aborts while loading the panel.
+
 ## 0.1.2
 
 ### Added
