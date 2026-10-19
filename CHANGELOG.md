@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.27
+
+### Added
+
+- **VS Code context menus**: right-click `go.mod` or `go.work` in the Explorer, or right-click inside an open `go.mod` editor (`Open in Go Module Manager`). Invoking on a `require` line in `go.mod` opens **Installed**, scopes to that project, selects the dependency row, and reveals indirect requirements when needed.
+- **Webview context menus and `⋯` actions**: floating, viewport-clamped context menus with keyboard navigation (`ContextMenu`, `Shift+F10`, arrow keys, `Home`/`End`, `Escape`) and `⋯` triggers across all six webview surfaces — dependency rows (**Installed**, **Updates**, **Vulnerabilities**, including multi-select bulk actions), **Browse** rows, **Consolidate** group headers and project rows, the Inspector **Target projects** checklist, **Advisory** cards, and project failure banners.
+- **Browse pagination**: infinite scroll and a `Load more` fallback load subsequent `pkg.go.dev` search pages without losing scroll position or flashing an empty table during fresh queries.
+
+### Fixed
+
+- Advisory chips pluralize (`2 advisories`) and the top count chip shows both affected module count and advisory count when they differ.
+
 ## 0.1.26
 
 ### Added
