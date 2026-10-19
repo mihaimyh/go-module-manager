@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.21
+
+### Fixed
+
+- The Activity Bar icon opens the editor panel immediately (loading state), instead of waiting for workspace discovery — and uses a side-bar welcome view rather than a webview shell, which was unreliable at creating the editor tab.
+
 ## 0.1.20
 
 ### Added

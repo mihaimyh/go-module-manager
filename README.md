@@ -29,7 +29,7 @@ Or search for **GMM** in the Extensions view. Marketplace page: [mihaimyh.go-mod
 ## Usage
 
 1. Open a folder that contains one or more `go.mod` files.
-2. Click the **Go Modules** icon in the Activity Bar (opens the panel in the editor), press the GMM button in the Explorer toolbar, use the editor-title button while a `go.mod` is open, press **Ctrl+Alt+G** (**Cmd+Alt+G** on macOS), or run **GMM: Open Go Module Manager** from the Command Palette.
+2. Click the **Go Modules** icon in the Activity Bar to open the panel in the editor (the side bar shows a short welcome with the same command), press the GMM button in the Explorer toolbar, use the editor-title button while a `go.mod` is open, press **Ctrl+Alt+G** (**Cmd+Alt+G** on macOS), or run **GMM: Open Go Module Manager** from the Command Palette.
 3. Declared versions appear immediately; updates fill in per project.
 4. Select rows to update them together, or open the inspector to pick a version.
 5. Open **Vulnerabilities** and press **Scan reachable** for a precise check.

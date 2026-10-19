@@ -28,7 +28,7 @@ import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/adv
 import { FileAdvisoryCache } from './advisoryCache';
 import type { PanelHandlers } from './handlers';
 import { GmmPanel } from './panel';
-import { GmmViewProvider } from './view';
+import { registerActivityBarLauncher } from './view';
 
 interface LoadedModel {
   readonly adapter: EcosystemAdapter;
@@ -60,16 +60,12 @@ export function activate(context: vscode.ExtensionContext): void {
   handlers = createHandlers(context);
   GmmPanel.setOnClosed(abortIfIdle);
 
-  const viewProvider = new GmmViewProvider({
-    openPanel: () => {
-      void openPanel(context);
-    },
-  });
-
   context.subscriptions.push(
     vscode.commands.registerCommand('gmm.openPanel', () => openPanel(context)),
     watchManifests(context),
-    vscode.window.registerWebviewViewProvider(GmmViewProvider.viewId, viewProvider),
+    registerActivityBarLauncher(() => {
+      void openPanel(context);
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('gmm.goPath') && surfaceOpen()) {
         void refresh(context, true);
@@ -224,11 +220,17 @@ function logGoEnvironment(goPath: string, cwd: string): void {
 }
 
 async function openPanel(context: vscode.ExtensionContext): Promise<void> {
-  const model = await ensureWorkspace(context);
-  if (model === undefined || handlers === undefined) {
+  if (handlers === undefined) {
     return;
   }
-  GmmPanel.show(context.extensionUri, model, handlers);
+  // Open the editor tab first so the Activity Bar click is not stuck waiting
+  // on `go` / discovery before anything appears in the editor area.
+  GmmPanel.show(context.extensionUri, handlers, current?.model);
+  const model = await ensureWorkspace(context);
+  if (model === undefined) {
+    return;
+  }
+  GmmPanel.show(context.extensionUri, handlers, model);
 }
 
 /** Loads the workspace once. Shared by the open command and the Activity Bar launcher. */

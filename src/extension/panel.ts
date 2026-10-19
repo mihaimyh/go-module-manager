@@ -16,7 +16,7 @@ export class GmmPanel {
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    private model: PanelModel,
+    private model: PanelModel | undefined,
     private handlers: PanelHandlers,
   ) {
     panel.webview.html = renderWebviewHtml(panel.webview, extensionUri);
@@ -34,25 +34,33 @@ export class GmmPanel {
     panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
   }
 
+  /**
+   * Reveal the panel immediately. Pass a model when you have one; omit it to
+   * show the loading screen while the workspace is still being read.
+   */
   static show(
     extensionUri: vscode.Uri,
-    model: PanelModel,
     handlers: PanelHandlers,
+    model?: PanelModel,
   ): void {
+    const column =
+      vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
     const existing = GmmPanel.current;
     if (existing) {
-      existing.model = model;
-      existing.progress = undefined;
       existing.handlers = handlers;
-      existing.panel.reveal();
-      existing.post();
+      if (model !== undefined) {
+        existing.model = model;
+        existing.progress = undefined;
+        existing.post();
+      }
+      existing.panel.reveal(column, false);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       'gmm.panel',
       'Go Module Manager',
-      vscode.ViewColumn.Active,
+      column,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -136,6 +144,9 @@ export class GmmPanel {
   }
 
   private post(): void {
+    if (this.model === undefined) {
+      return;
+    }
     GmmPanel.send({
       type: 'model',
       model: this.model,
