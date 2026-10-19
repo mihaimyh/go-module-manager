@@ -57,6 +57,8 @@ export interface EcosystemAdapter {
   scan?(manifestPath: string): Promise<readonly CallGraphFinding[]>;
   /** Optional: installs the scanner CLI for terminal use; scans never need it. */
   installScanner?(): Promise<void>;
+  /** Every tagged version of a module, newest first, for the version picker. */
+  versions?(modulePath: string): Promise<readonly string[]>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

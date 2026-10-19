@@ -12,7 +12,12 @@ export type HostToWebview =
       readonly model: PanelModel;
       readonly progress?: ResolveProgress;
     }
-  | { readonly type: 'clear-selection' };
+  | { readonly type: 'clear-selection' }
+  | {
+      readonly type: 'versions';
+      readonly modulePath: string;
+      readonly versions: readonly string[];
+    };
 
 export type RecoveryAction = 'repair' | 'retry' | 'install';
 
@@ -43,6 +48,10 @@ export type WebviewToHost =
   | {
       readonly type: 'tidy';
       readonly manifests: readonly string[];
+    }
+  | {
+      readonly type: 'versions';
+      readonly modulePath: string;
     }
   | {
       readonly type: 'scan';

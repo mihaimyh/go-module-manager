@@ -440,7 +440,43 @@ tbody th.col-module .chip {
 }
 
 .col-update {
-  width: 17.6%;
+  width: 14%;
+}
+
+.col-type {
+  width: 10%;
+}
+
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.sort-header:hover {
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.sort-arrow {
+  font-size: 8px;
+  line-height: 1;
+}
+
+.links a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: none;
+}
+
+.links a:hover {
+  text-decoration: underline;
 }
 
 .col-actions {

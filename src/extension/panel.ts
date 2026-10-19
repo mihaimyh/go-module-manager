@@ -21,6 +21,7 @@ export interface PanelHandlers {
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;
   readonly onInstallScanner: () => void;
+  readonly onVersions: (modulePath: string) => void;
 }
 
 export class GmmPanel {
@@ -43,6 +44,7 @@ export class GmmPanel {
         action?: string;
         name?: string;
         version?: string;
+        modulePath?: string;
         selection?: unknown;
         manifests?: unknown;
       }) => {
@@ -92,6 +94,12 @@ export class GmmPanel {
         }
         if (message.type === 'install-scanner') {
           this.handlers.onInstallScanner();
+        }
+        if (message.type === 'versions' && typeof message.modulePath === 'string') {
+          const known = this.model.rows.some((row) => row.name === message.modulePath);
+          if (known) {
+            this.handlers.onVersions(message.modulePath);
+          }
         }
       },
       undefined,
@@ -149,6 +157,15 @@ export class GmmPanel {
       return;
     }
     const message: HostToWebview = { type: 'clear-selection' };
+    void current.panel.webview.postMessage(message);
+  }
+
+  static postVersions(modulePath: string, versions: readonly string[]): void {
+    const current = GmmPanel.current;
+    if (current === undefined) {
+      return;
+    }
+    const message: HostToWebview = { type: 'versions', modulePath, versions };
     void current.panel.webview.postMessage(message);
   }
 

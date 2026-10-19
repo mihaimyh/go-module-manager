@@ -9,6 +9,7 @@ import './webview.css';
 interface ViewState {
   readonly model?: PanelModel;
   readonly progress?: ResolveProgress;
+  readonly versions?: Readonly<Record<string, readonly string[]>>;
 }
 
 function Root(): JSX.Element {
@@ -17,11 +18,20 @@ function Root(): JSX.Element {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>): void => {
-      if (event.data.type === 'model') {
-        setState({ model: event.data.model, progress: event.data.progress });
+      const message = event.data;
+      if (message.type === 'model') {
+        const { model, progress } = message;
+        setState((current) => ({ ...current, model, progress }));
       }
-      if (event.data.type === 'clear-selection') {
+      if (message.type === 'clear-selection') {
         setClearSignal((current) => current + 1);
+      }
+      if (message.type === 'versions') {
+        const { modulePath, versions } = message;
+        setState((current) => ({
+          ...current,
+          versions: { ...current.versions, [modulePath]: versions },
+        }));
       }
     };
     window.addEventListener('message', onMessage);
@@ -65,11 +75,18 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onVersions = (modulePath: string): void => {
+    const message: WebviewToHost = { type: 'versions', modulePath };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
       progress={state.progress}
       clearSignal={clearSignal}
+      versions={state.versions ?? {}}
+      onVersions={onVersions}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}

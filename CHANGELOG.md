@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.8
+
+### Added
+
+- The version picker loads every tagged version from `proxy.golang.org` (case-encoded path, cached, private paths skipped) instead of only the required/selected/candidate versions.
+- The inspector links to `pkg.go.dev` and to the repository on GitHub, GitLab or Bitbucket.
+- Every column sorts: module, owning module, required, selected, update, and a new **Type** column for patch/minor/major/release.
+- `Direct only` is checked by default.
+
+### Changed
+
+- The inspector follows the current view, so it cannot show a row hidden by the tab or filters.
+
 ## 0.1.7
 
 ### Fixed

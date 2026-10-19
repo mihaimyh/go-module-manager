@@ -78,6 +78,9 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
     onInstallScanner: () => {
       void installScannerCli();
     },
+    onVersions: (modulePath) => {
+      void requestVersions(modulePath);
+    },
   });
 
   // Declared rows are already on screen; versions and candidates follow.
@@ -457,6 +460,20 @@ async function scanProjects(manifests: readonly string[]): Promise<void> {
   }
 }
 
+async function requestVersions(modulePath: string): Promise<void> {
+  const get = current?.adapter.versions;
+  if (get === undefined) {
+    return;
+  }
+
+  try {
+    GmmPanel.postVersions(modulePath, await get(modulePath));
+  } catch {
+    // Keep the versions the panel already knows; the proxy is optional.
+    GmmPanel.postVersions(modulePath, []);
+  }
+}
+
 async function installScannerCli(): Promise<void> {
   const install = current?.adapter.installScanner;
   if (install === undefined) {
@@ -557,6 +574,7 @@ async function loadModel(
     const [detected] = detectAdapters(root, {
       goPath,
       advisories: ensureAdvisorySource(context, goPath),
+      fetchText,
     });
     adapter = detected;
     if (!adapter) {
@@ -661,6 +679,14 @@ async function fetchJson(url: string): Promise<unknown> {
     throw new Error(`${url} returned ${response.status}`);
   }
   return response.json();
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+  return response.text();
 }
 
 function messageOf(error: unknown): string {

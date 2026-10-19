@@ -3,7 +3,8 @@ import type { DependencySelection, RecoveryAction, ResolveProgress } from '../co
 import { advisoryFixOffer } from '../core/advisoryAction';
 import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
-import type { UpdateKind } from '../core/version';
+import { sortRows, type SortKey, type SortState } from '../core/sort';
+import { compareVersions, parseVersion, type UpdateKind } from '../core/version';
 import {
   ArrowRightIcon,
   ChevronIcon,
@@ -48,6 +49,8 @@ interface AppProps {
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;
   readonly onInstallScanner: () => void;
+  readonly versions: Readonly<Record<string, readonly string[]>>;
+  readonly onVersions: (modulePath: string) => void;
 }
 
 export function App({
@@ -61,6 +64,8 @@ export function App({
   onTidy,
   onScan,
   onInstallScanner,
+  versions,
+  onVersions,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>(() =>
     window.location.hash === '#vulnerabilities'
@@ -71,7 +76,8 @@ export function App({
   );
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
-  const [directOnly, setDirectOnly] = useState(false);
+  const [directOnly, setDirectOnly] = useState(true);
+  const [sort, setSort] = useState<SortState>({ key: 'module', direction: 'asc' });
   const [selectedId, setSelectedId] = useState<string>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -112,12 +118,23 @@ export function App({
     });
   }, [tabRows, query, moduleFilter, directOnly]);
 
-  // Open on the row that needs attention: an advisory first, then an update.
+  const sorted = useMemo(() => sortRows(visible, sort), [visible, sort]);
+
+  const toggleSort = (key: SortKey): void => {
+    setSort((current) =>
+      current.key === key
+        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' },
+    );
+  };
+
+  // Open on the row that needs attention within the current view: an advisory
+  // first, then an update. A row hidden by the tab or filters is not selected.
   const activeId =
-    selectedId ??
-    rows.find((row) => row.advisories.length > 0)?.id ??
-    rows.find((row) => row.candidate !== undefined)?.id ??
-    rows[0]?.id;
+    sorted.find((row) => row.id === selectedId)?.id ??
+    sorted.find((row) => row.advisories.length > 0)?.id ??
+    sorted.find((row) => row.candidate !== undefined)?.id ??
+    sorted[0]?.id;
   const selected = rows.find((row) => row.id === activeId);
   const visibleSelected = visible.filter((row) => checked.has(row.id));
   const hiddenSelected = Math.max(0, checked.size - visibleSelected.length);
@@ -379,6 +396,7 @@ export function App({
               <col className="col-version" />
               <col className="col-version" />
               <col className="col-update" />
+              <col className="col-type" />
               <col className="col-actions" />
             </colgroup>
             <thead>
@@ -391,18 +409,49 @@ export function App({
                     onChange={toggleAll}
                   />
                 </th>
-                <th scope="col">Module</th>
-                <th scope="col">Owning module</th>
-                <th scope="col">Required</th>
-                <th scope="col">Selected</th>
-                <th scope="col">Update</th>
+                <SortHeader label="Module" column="module" sort={sort} onSort={toggleSort} />
+                <SortHeader
+                  label="Owning module"
+                  column="owning"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="col-owning"
+                />
+                <SortHeader
+                  label="Required"
+                  column="required"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="col-version"
+                />
+                <SortHeader
+                  label="Selected"
+                  column="selected"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="col-version"
+                />
+                <SortHeader
+                  label="Update"
+                  column="update"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="col-update"
+                />
+                <SortHeader
+                  label="Type"
+                  column="kind"
+                  sort={sort}
+                  onSort={toggleSort}
+                  className="col-type"
+                />
                 <th scope="col" className="col-actions">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => (
+              {sorted.map((row) => (
                 <Row
                   key={row.id}
                   row={row}
@@ -420,13 +469,49 @@ export function App({
 
         <aside className="inspector" aria-label="Details">
           {selected ? (
-            <Inspector key={selected.id} row={selected} onUpdate={onUpdate} />
+            <Inspector
+              key={selected.id}
+              row={selected}
+              versions={versions[selected.name]}
+              onVersions={onVersions}
+              onUpdate={onUpdate}
+            />
           ) : (
             <p className="empty">Select a module.</p>
           )}
         </aside>
       </main>
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  column,
+  sort,
+  onSort,
+  className,
+}: {
+  readonly label: string;
+  readonly column: SortKey;
+  readonly sort: SortState;
+  readonly onSort: (key: SortKey) => void;
+  readonly className?: string;
+}): JSX.Element {
+  const active = sort.key === column;
+  return (
+    <th
+      scope="col"
+      className={className}
+      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button type="button" className="sort-header" onClick={() => onSort(column)}>
+        {label}
+        <span className="sort-arrow" aria-hidden="true">
+          {active ? (sort.direction === 'asc' ? '▲' : '▼') : ''}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -523,11 +608,16 @@ function Row({
       </td>
       <td className="col-update">
         {row.failure === undefined ? (
-          <Candidate row={row} unresolved={unresolved} />
+          <UpdateCell row={row} unresolved={unresolved} />
         ) : (
           <span className="row-error mono" title={row.failure}>
             {row.failure}
           </span>
+        )}
+      </td>
+      <td className="col-type">
+        {row.candidate === undefined ? null : (
+          <span className={`badge kind-${row.kind}`}>{KIND_LABELS[row.kind]}</span>
         )}
       </td>
       <td className="col-actions" onClick={(event) => event.stopPropagation()}>
@@ -561,7 +651,7 @@ function Row({
   );
 }
 
-function Candidate({
+function UpdateCell({
   row,
   unresolved,
 }: {
@@ -576,12 +666,7 @@ function Candidate({
     }
     return <span className="muted mono">— up to date</span>;
   }
-  return (
-    <>
-      <span className="mono candidate">{row.candidate}</span>
-      <span className={`badge kind-${row.kind}`}>{KIND_LABELS[row.kind]}</span>
-    </>
-  );
+  return <span className="mono candidate">{row.candidate}</span>;
 }
 
 function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
@@ -598,15 +683,26 @@ function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
 
 function Inspector({
   row,
+  versions,
+  onVersions,
   onUpdate,
 }: {
   readonly row: DependencyRow;
+  readonly versions: readonly string[] | undefined;
+  readonly onVersions: (modulePath: string) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
-  const versions = Array.from(
-    new Set([row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString)),
-  );
-  const [version, setVersion] = useState(versions[0]);
+  useEffect(() => {
+    onVersions(row.name);
+  }, [row.name]);
+
+  const known = [row.candidate, row.resolvedVersion, row.declaredVersion].filter(isString);
+  const options = [...new Set([...(versions ?? []), ...known])]
+    .filter((candidate) => parseVersion(candidate) !== undefined)
+    .sort((left, right) => compareVersions(right, left));
+  const fallback = options[0] ?? row.declaredVersion;
+  const [version, setVersion] = useState(fallback);
+  const chosen = options.includes(version) ? version : fallback;
 
   return (
     <div className="inspector-body">
@@ -660,16 +756,32 @@ function Inspector({
           <dt>Type</dt>
           <dd className="muted">{row.transitive ? 'indirect dependency' : 'direct dependency'}</dd>
         </div>
+        <div>
+          <dt>Links</dt>
+          <dd className="links">
+            <a href={`https://pkg.go.dev/${row.name}`} target="_blank" rel="noreferrer">
+              pkg.go.dev
+            </a>
+            {repositoryUrl(row.name) === undefined ? null : (
+              <>
+                {' · '}
+                <a href={repositoryUrl(row.name)} target="_blank" rel="noreferrer">
+                  repository
+                </a>
+              </>
+            )}
+          </dd>
+        </div>
       </dl>
 
       <div className="controls">
         <div className="select grow">
           <select
             aria-label="Version to install"
-            value={version}
+            value={chosen}
             onChange={(event) => setVersion(event.target.value)}
           >
-            {versions.map((candidate) => (
+            {options.map((candidate) => (
               <option key={candidate} value={candidate}>
                 {candidate}
               </option>
@@ -682,13 +794,13 @@ function Inspector({
         <button
           type="button"
           className="button primary"
-          disabled={version === row.resolvedVersion}
+          disabled={chosen === row.resolvedVersion}
           title={
-            version === row.resolvedVersion
+            chosen === row.resolvedVersion
               ? 'Already resolved at this version'
-              : `Run go get ${row.name}@${version}`
+              : `Run go get ${row.name}@${chosen}`
           }
-          onClick={() => onUpdate(row.manifestPath, row.name, version)}
+          onClick={() => onUpdate(row.manifestPath, row.name, chosen)}
         >
           Update
         </button>
@@ -778,6 +890,16 @@ async function copyPath(path: string): Promise<void> {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value !== '';
+}
+
+function repositoryUrl(modulePath: string): string | undefined {
+  const match = /^(github\.com|gitlab\.com|bitbucket\.org)\/([^/]+)\/([^/]+)/.exec(
+    modulePath,
+  );
+  if (match === null) {
+    return undefined;
+  }
+  return `https://${match[1]}/${match[2]}/${match[3]}`;
 }
 
 function ageOf(iso: string): string {

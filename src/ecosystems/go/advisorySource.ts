@@ -5,7 +5,8 @@ import {
   type AdvisoryReport,
   type AdvisorySource,
 } from './advisory';
-import { goEnv, type GoRunner } from './runner';
+import { createPrivateMatcher } from './private';
+import type { GoRunner } from './runner';
 
 const INDEX_DB_URL = 'https://vuln.go.dev/index/db.json';
 const INDEX_MODULES_URL = 'https://vuln.go.dev/index/modules.json';
@@ -48,40 +49,19 @@ export interface AdvisorySourceDeps {
  */
 export function createLiveAdvisorySource(deps: AdvisorySourceDeps): AdvisorySource {
   const now = deps.now ?? Date.now;
-  let patterns: string[] | undefined;
-
-  const privatePatterns = async (): Promise<string[]> => {
-    if (patterns !== undefined) {
-      return patterns;
-    }
-    const result = await deps.runner.run(['env', 'GOPRIVATE', 'GONOPROXY'], {
-      cwd: process.cwd(),
-      env: goEnv(),
-      timeoutMs: 10_000,
-    });
-    // Failing closed: an unreadable configuration must not leak private paths.
-    if (result.exitCode !== 0) {
-      throw new Error('GMM could not read GOPRIVATE/GONOPROXY from go env.');
-    }
-    patterns = result.stdout
-      .split(/\r?\n/)
-      .flatMap((line) => line.split(','))
-      .map((pattern) => pattern.trim())
-      .filter((pattern) => pattern !== '');
-    return patterns;
-  };
+  const matcher = createPrivateMatcher(deps.runner);
 
   return {
     async lookup(targets, options = {}) {
-      const privateGlobs = await privatePatterns();
       const unchecked = new Set<string>();
-      const publicTargets = targets.filter((target) => {
-        if (!isPrivate(target.name, privateGlobs)) {
-          return true;
+      const publicTargets: AdvisoryTarget[] = [];
+      for (const target of targets) {
+        if (await matcher.isPrivate(target.name)) {
+          unchecked.add(advisoryKey(target.name, target.version));
+        } else {
+          publicTargets.push(target);
         }
-        unchecked.add(advisoryKey(target.name, target.version));
-        return false;
-      });
+      }
 
       if (publicTargets.length === 0) {
         return { matches: new Map(), unchecked, stale: false };
@@ -159,33 +139,6 @@ function report(
     fetchedAt: db.fetchedAt,
     stale,
   };
-}
-
-/**
- * Go's GOPRIVATE matching is prefix-based with path globs: `github.com/acme/*`
- * also covers `github.com/acme/internal/sub`.
- */
-function isPrivate(modulePath: string, patterns: readonly string[]): boolean {
-  const parts = modulePath.split('/');
-  const prefixes = parts.map((_, index) => parts.slice(0, index + 1).join('/'));
-  return patterns.some((pattern) =>
-    prefixes.some((prefix) => globMatches(pattern, prefix)),
-  );
-}
-
-function globMatches(pattern: string, value: string): boolean {
-  const source = [...pattern]
-    .map((char) => {
-      if (char === '*') {
-        return '[^/]*';
-      }
-      if (char === '?') {
-        return '[^/]';
-      }
-      return char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    })
-    .join('');
-  return new RegExp(`^${source}$`).test(value);
 }
 
 function readDbModified(value: unknown): string {
