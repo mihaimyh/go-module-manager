@@ -1,6 +1,6 @@
 # Spec 0001 — Live Go reads and updates
 
-Status: draft, not yet published to a tracker (no tracker configured).
+Status: published as [#1](https://github.com/mihaimyh/go-module-manager/issues/1), labelled `ready-for-agent`. This file is the repo-visible copy; the issue is the tracker record.
 
 ## Problem Statement
 
