@@ -24,13 +24,20 @@ const html = `<!DOCTYPE html>
   <body>
     <div id="root"></div>
     <script>
-      window.__model = ${model};
+      window.__payload = ${model};
       window.acquireVsCodeApi = function () {
         return {
           postMessage: function (message) {
             if (message && message.type === 'ready') {
               setTimeout(function () {
-                window.postMessage({ type: 'model', model: window.__model }, '*');
+                window.postMessage(
+                  {
+                    type: 'model',
+                    model: window.__payload.model,
+                    progress: window.__payload.progress,
+                  },
+                  '*',
+                );
               }, 0);
             }
           },

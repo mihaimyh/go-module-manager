@@ -7,7 +7,7 @@ import {
 } from '../../core/model';
 import { findManifestDirectories } from '../discovery';
 import { parseGoModJson, type GoModJson } from './goJson';
-import { goEnv, type GoRunner } from './runner';
+import { goEnv, firstLine, type GoRunner } from './runner';
 
 const READ_TIMEOUT_MS = 60_000;
 
@@ -83,9 +83,4 @@ function toProject(directory: string, name: string, goMod: GoModJson): ProjectIn
     .filter((dependency) => dependency !== undefined);
 
   return { manifestPath, name, dependencies };
-}
-
-function firstLine(text: string): string {
-  const line = text.split(/\r?\n/).find((candidate) => candidate.trim() !== '');
-  return line?.trim() ?? 'go mod edit failed';
 }

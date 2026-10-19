@@ -45,6 +45,12 @@ export interface DependencyRow {
   readonly advisories: readonly Advisory[];
 }
 
+/** What the ecosystem's resolver decided for one project. */
+export interface ResolvedProject {
+  readonly manifestPath: string;
+  readonly dependencies: readonly ResolvedDependency[];
+}
+
 export interface ProjectSummary {
   readonly name: string;
   readonly manifestPath: string;
@@ -79,20 +85,7 @@ export function assemblePanelModel(
 
     for (const dependency of project.dependencies) {
       const entry = byName.get(dependency.name);
-      const resolvedVersion = entry?.version;
-
-      let candidate = entry?.candidate;
-      let kind: UpdateKind = entry?.kind ?? 'none';
-
-      // Prereleases are a product-level policy, not an ecosystem one.
-      if (candidate !== undefined && isPrerelease(candidate) && options.includePrereleases !== true) {
-        candidate = undefined;
-        kind = 'none';
-      }
-      if (candidate === resolvedVersion) {
-        candidate = undefined;
-        kind = 'none';
-      }
+      const selected = selectCandidate(entry, options.includePrereleases === true);
 
       rows.push({
         id: `${project.manifestPath}#${dependency.name}`,
@@ -100,10 +93,10 @@ export function assemblePanelModel(
         project: project.name,
         manifestPath: project.manifestPath,
         declaredVersion: dependency.declaredVersion,
-        ...(resolvedVersion === undefined ? {} : { resolvedVersion }),
+        ...(entry?.version === undefined ? {} : { resolvedVersion: entry.version }),
         transitive: dependency.transitive,
-        ...(candidate === undefined ? {} : { candidate }),
-        kind,
+        ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
+        kind: selected.kind,
         advisories: options.advisories?.get(dependency.name) ?? [],
       });
     }
@@ -125,4 +118,63 @@ export function assemblePanelModel(
     .sort((left, right) => left.name.localeCompare(right.name));
 
   return { projects: summaries, rows };
+}
+
+/**
+ * Merges one project's resolver output into an existing model: the rows of that
+ * project gain their resolved version and candidate, everything else is
+ * untouched. Used as lookups arrive one project at a time.
+ */
+export function applyUpdates(
+  model: PanelModel,
+  resolved: ResolvedProject,
+  options: AssembleOptions = {},
+): PanelModel {
+  const byName = new Map(resolved.dependencies.map((entry) => [entry.name, entry]));
+
+  return {
+    ...model,
+    rows: model.rows.map((row) => {
+      if (row.manifestPath !== resolved.manifestPath) {
+        return row;
+      }
+      const entry = byName.get(row.name);
+      if (entry === undefined) {
+        return row;
+      }
+
+      const selected = selectCandidate(entry, options.includePrereleases === true);
+
+      return {
+        id: row.id,
+        name: row.name,
+        project: row.project,
+        manifestPath: row.manifestPath,
+        declaredVersion: row.declaredVersion,
+        ...(entry.version === undefined ? {} : { resolvedVersion: entry.version }),
+        transitive: row.transitive,
+        ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
+        kind: selected.kind,
+        advisories: row.advisories,
+      };
+    }),
+  };
+}
+
+/**
+ * Prereleases are a product-level policy, not an ecosystem one. A candidate
+ * equal to the resolved version is not an update.
+ */
+function selectCandidate(
+  entry: ResolvedDependency | undefined,
+  includePrereleases: boolean,
+): { readonly candidate?: string; readonly kind: UpdateKind } {
+  const candidate = entry?.candidate;
+  if (candidate === undefined || candidate === entry?.version) {
+    return { kind: 'none' };
+  }
+  if (!includePrereleases && isPrerelease(candidate)) {
+    return { kind: 'none' };
+  }
+  return { candidate, kind: entry?.kind ?? 'none' };
 }

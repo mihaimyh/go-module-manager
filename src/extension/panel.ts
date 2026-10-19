@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import type { HostToWebview } from '../core/messages';
+import type { HostToWebview, ResolveProgress } from '../core/messages';
 import type { PanelModel } from '../core/model';
 
 /**
@@ -11,17 +11,22 @@ export class GmmPanel {
   private static current: GmmPanel | undefined;
 
   private readonly disposables: vscode.Disposable[] = [];
+  private progress: ResolveProgress | undefined;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     private model: PanelModel,
+    private onRefresh: () => void,
   ) {
     panel.webview.html = renderHtml(panel.webview, extensionUri);
     panel.webview.onDidReceiveMessage(
       (message: { type?: string }) => {
         if (message.type === 'ready') {
           this.post();
+        }
+        if (message.type === 'refresh') {
+          this.onRefresh();
         }
       },
       undefined,
@@ -30,10 +35,16 @@ export class GmmPanel {
     panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
   }
 
-  static show(extensionUri: vscode.Uri, model: PanelModel): void {
+  static show(
+    extensionUri: vscode.Uri,
+    model: PanelModel,
+    onRefresh: () => void,
+  ): void {
     const existing = GmmPanel.current;
     if (existing) {
       existing.model = model;
+      existing.progress = undefined;
+      existing.onRefresh = onRefresh;
       existing.panel.reveal();
       existing.post();
       return;
@@ -50,11 +61,29 @@ export class GmmPanel {
       },
     );
 
-    GmmPanel.current = new GmmPanel(panel, extensionUri, model);
+    GmmPanel.current = new GmmPanel(panel, extensionUri, model, onRefresh);
+  }
+
+  static update(model: PanelModel, progress?: ResolveProgress): void {
+    const current = GmmPanel.current;
+    if (!current) {
+      return;
+    }
+    current.model = model;
+    current.progress = progress;
+    current.post();
+  }
+
+  static isOpen(): boolean {
+    return GmmPanel.current !== undefined;
   }
 
   private post(): void {
-    const message: HostToWebview = { type: 'model', model: this.model };
+    const message: HostToWebview = {
+      type: 'model',
+      model: this.model,
+      ...(this.progress === undefined ? {} : { progress: this.progress }),
+    };
     void this.panel.webview.postMessage(message);
   }
 

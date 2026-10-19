@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { ResolveProgress } from '../core/messages';
 import type { Advisory, DependencyRow, PanelModel } from '../core/model';
 import type { UpdateKind } from '../core/version';
 import {
@@ -26,9 +27,11 @@ type Tab = 'dependencies' | 'updates' | 'vulnerabilities';
 
 interface AppProps {
   readonly model: PanelModel | undefined;
+  readonly progress?: ResolveProgress;
+  readonly onRefresh: () => void;
 }
 
-export function App({ model }: AppProps): JSX.Element {
+export function App({ model, progress, onRefresh }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('dependencies');
   const [query, setQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -167,8 +170,8 @@ export function App({ model }: AppProps): JSX.Element {
           <button
             type="button"
             className="button primary"
-            disabled
-            title="Wires up with the go runner in the next step"
+            onClick={onRefresh}
+            title="Re-run the update lookup"
           >
             <RefreshIcon />
             Check for updates
@@ -199,7 +202,11 @@ export function App({ model }: AppProps): JSX.Element {
         <button type="button" className="tab disabled" disabled title="Lands in 1.0">
           Consolidate
         </button>
-        {checked.size > 0 ? (
+        {progress !== undefined && progress.done < progress.total ? (
+          <span className="selection-count">
+            checking {progress.done}/{progress.total}
+          </span>
+        ) : checked.size > 0 ? (
           <span className="selection-count">{checked.size} selected</span>
         ) : null}
       </nav>

@@ -1,18 +1,23 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { HostToWebview, WebviewToHost } from '../core/messages';
+import type { HostToWebview, ResolveProgress, WebviewToHost } from '../core/messages';
 import type { PanelModel } from '../core/model';
 import { App } from './App';
 import { vscode } from './vscode';
 import './webview.css';
 
+interface ViewState {
+  readonly model?: PanelModel;
+  readonly progress?: ResolveProgress;
+}
+
 function Root(): JSX.Element {
-  const [model, setModel] = useState<PanelModel | undefined>();
+  const [state, setState] = useState<ViewState>({});
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>): void => {
       if (event.data.type === 'model') {
-        setModel(event.data.model);
+        setState({ model: event.data.model, progress: event.data.progress });
       }
     };
     window.addEventListener('message', onMessage);
@@ -21,7 +26,12 @@ function Root(): JSX.Element {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  return <App model={model} />;
+  const onRefresh = (): void => {
+    const message: WebviewToHost = { type: 'refresh' };
+    vscode.postMessage(message);
+  };
+
+  return <App model={state.model} progress={state.progress} onRefresh={onRefresh} />;
 }
 
 const container = document.getElementById('root');

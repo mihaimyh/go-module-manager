@@ -36,6 +36,12 @@ export function goEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return { ...env, GOWORK: 'off' };
 }
 
+/** The first non-empty line of toolchain output, for error messages. */
+export function firstLine(text: string): string {
+  const line = text.split(/\r?\n/).find((candidate) => candidate.trim() !== '');
+  return line?.trim() ?? 'the go command failed without output';
+}
+
 export const execGoRunner: GoRunner = {
   run(args, options) {
     return new Promise<RunResult>((resolve, reject) => {

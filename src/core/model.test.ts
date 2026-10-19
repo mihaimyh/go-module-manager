@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assemblePanelModel,
+  applyUpdates,
   type Advisory,
   type DependencyInput,
   type ProjectInput,
@@ -93,5 +94,69 @@ describe('assemblePanelModel', () => {
     expect(model.projects).toEqual([
       { name: 'example.com/a', manifestPath: MANIFEST, dependencyCount: 2 },
     ]);
+  });
+});
+
+describe('applyUpdates', () => {
+  const declared = assemblePanelModel(
+    project([
+      { name: 'rsc.io/quote', version: 'v1.5.1' },
+      { name: 'rsc.io/sampler', version: 'v1.3.0', transitive: true },
+    ]),
+    new Map(),
+    {
+      advisories: new Map([
+        ['rsc.io/sampler', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
+      ]),
+    },
+  );
+
+  it('fills the resolved version and the candidate for the matching project', () => {
+    const model = applyUpdates(declared, {
+      manifestPath: MANIFEST,
+      dependencies: [
+        { name: 'rsc.io/quote', version: 'v1.5.2', candidate: 'v1.6.0', kind: 'minor' },
+        { name: 'rsc.io/sampler', version: 'v1.3.0', candidate: 'v1.99.99', kind: 'minor' },
+      ],
+    });
+
+    const quote = model.rows.find((row) => row.name === 'rsc.io/quote');
+    expect(quote?.declaredVersion).toBe('v1.5.1');
+    expect(quote?.resolvedVersion).toBe('v1.5.2');
+    expect(quote?.candidate).toBe('v1.6.0');
+    expect(quote?.kind).toBe('minor');
+  });
+
+  it('leaves other projects and advisories untouched', () => {
+    const model = applyUpdates(declared, {
+      manifestPath: '/repo/other/go.mod',
+      dependencies: [{ name: 'rsc.io/quote', version: 'v9.9.9' }],
+    });
+
+    const quote = model.rows.find((row) => row.name === 'rsc.io/quote');
+    const sampler = model.rows.find((row) => row.name === 'rsc.io/sampler');
+
+    expect(quote?.resolvedVersion).toBeUndefined();
+    expect(sampler?.advisories).toHaveLength(1);
+  });
+
+  it('hides a prerelease candidate unless asked for it', () => {
+    const resolvedProject = {
+      manifestPath: MANIFEST,
+      dependencies: [
+        {
+          name: 'rsc.io/quote',
+          version: 'v1.5.1',
+          candidate: 'v2.0.0-rc.1',
+          kind: 'prerelease' as const,
+        },
+      ],
+    };
+
+    const hidden = applyUpdates(declared, resolvedProject);
+    const shown = applyUpdates(declared, resolvedProject, { includePrereleases: true });
+
+    expect(hidden.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBeUndefined();
+    expect(shown.rows.find((row) => row.name === 'rsc.io/quote')?.candidate).toBe('v2.0.0-rc.1');
   });
 });
