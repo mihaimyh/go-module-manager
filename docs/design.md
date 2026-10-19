@@ -2,12 +2,17 @@
 
 A VS Code extension that shows the dependencies of a Go workspace and moves them to other versions safely. It deliberately looks like the NuGet Package Manager because the shapes match: one file per module, one requirement per line, one version per requirement, written per file.
 
+## UI source of truth
+
+The panel layout comes from the Stitch project `GMM — Go Module Manager` (id `14069285031981507084`), design system **VS Code Native**. The generated screen is checked in at `.stitch/designs/gmm-panel.{html,png}`, the design notes at `.stitch/DESIGN.md`, and a headless screenshot of the ported webview at `.stitch/designs/gmm-webview.png`.
+
+The mock's colours are a way to draw; the shipped UI reads `--vscode-*` tokens so it follows the user's theme. Nothing in the webview loads a remote font, icon set or script — icons are inline SVG, mono text uses the editor font.
+
 ## Non-goals in v1
 
 No package browsing, no installing new modules, no running builds or tests, no writing `go.work`, no hand-written `go.mod` parser, no telemetry, no central version file (Go has no `Directory.Packages.props`).
 
 ## Decisions
-
 | Decision | Consequence | Record |
 | --- | --- | --- |
 | An update is `go get` and nothing else | tidy is a separate button; v2 migration is its own confirmed action | ADR 0001 |

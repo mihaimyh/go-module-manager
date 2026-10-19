@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+
+<html class="dark h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Go Modules - VS Code Native Editor Panel</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Inter & JetBrains Mono for authentic VS Code Native aesthetic -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Public+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            neutral: {
+              750: '#333333',
+              850: '#232325',
+              925: '#1b1b1d',
+              950: '#181819'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            display: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    /* Strict editor panel reset & VS Code scrollbars */
+    * {
+      box-sizing: border-box;
+    }
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e1e1e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #424242;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #4f4f4f;
+    }
+    .material-symbols-outlined {
+      font-size: 16px;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body class="bg-[#1f1f1f] text-[#cccccc] font-body h-screen w-screen overflow-hidden antialiased select-none flex flex-col justify-between">
+<!-- Main Panel Container (Desktop First 1280x800 target, edge-to-edge VS Code Editor density) -->
+<div class="flex flex-col h-full w-full bg-[#1e1e1e]">
+<!-- 1. Top Toolbar (56px tall, edge to edge, border-b border-neutral-700 bg-neutral-900 px-4 flex items-center justify-between) -->
+<header class="h-14 min-h-[56px] border-b border-neutral-700 bg-neutral-900 px-4 flex items-center justify-between gap-4 z-20">
+<!-- Left side: Title, count, search filter, dropdown, direct filter -->
+<div class="flex items-center gap-3">
+<!-- Title & Counter -->
+<div class="flex items-center gap-2 pr-1">
+<span class="text-sm font-semibold text-neutral-100 tracking-tight font-headline flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[#007acc] text-[18px]">package_2</span>
+            Go modules
+          </span>
+<span class="text-xs font-mono text-neutral-400 bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700/60 leading-none">
+            6 of 6
+          </span>
+</div>
+<div class="h-4 w-[1px] bg-neutral-700"></div>
+<!-- Module Path Search Input -->
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-2 text-neutral-500 text-[15px] pointer-events-none">search</span>
+<input class="w-64 bg-neutral-950 border border-neutral-700 text-xs pl-7 pr-2.5 py-1 text-neutral-200 placeholder-neutral-500 rounded focus:border-[#007acc] focus:outline-none focus:ring-1 focus:ring-[#007acc] transition-colors" placeholder="Filter by module path" type="text" value=""/>
+</div>
+<!-- Scope Select Dropdown -->
+<div class="relative">
+<select class="bg-neutral-950 border border-neutral-700 text-xs text-neutral-300 pl-2.5 pr-7 py-1 rounded appearance-none focus:border-[#007acc] focus:outline-none focus:ring-1 focus:ring-[#007acc] cursor-pointer">
+<option>All modules (2)</option>
+<option>example.com/a</option>
+<option>example.com/b</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[14px]">expand_more</span>
+</div>
+<!-- Direct Only Checkbox -->
+<label class="text-xs text-neutral-300 flex items-center gap-1.5 cursor-pointer hover:text-neutral-100 select-none ml-1">
+<input class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+<span>Direct only</span>
+</label>
+</div>
+<!-- Far Right Actions: Primary & Secondary Command Buttons -->
+<div class="flex items-center gap-2">
+<button class="bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border border-neutral-700 text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors cursor-pointer" type="button">
+<span class="material-symbols-outlined text-[15px]">terminal</span>
+<span>go mod tidy</span>
+</button>
+<button class="bg-[#007acc] hover:bg-[#0062a3] text-white text-xs font-medium px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors cursor-pointer shadow-none" type="button">
+<span class="material-symbols-outlined text-[15px]">refresh</span>
+<span>Check for updates</span>
+</button>
+</div>
+</header>
+<!-- 2. Tab Strip (40px tall, border-b border-neutral-700 bg-neutral-900 px-4 flex items-center gap-6 text-xs) -->
+<nav aria-label="Module Views" class="h-10 min-h-[40px] border-b border-neutral-700 bg-neutral-900 px-4 flex items-center gap-6 text-xs z-10">
+<!-- Active Tab: Dependencies (6) -->
+<button class="text-neutral-100 font-medium border-b-2 border-[#007acc] h-full flex items-center gap-1.5 px-0.5 transition-colors cursor-pointer focus:outline-none">
+<span>Dependencies</span>
+<span class="bg-neutral-800 text-neutral-300 font-mono text-[10px] px-1.5 py-0.5 rounded border border-neutral-700/60 leading-none">6</span>
+</button>
+<!-- Updates Tab (4) -->
+<button class="text-neutral-400 hover:text-neutral-200 h-full flex items-center gap-1.5 px-0.5 transition-colors cursor-pointer focus:outline-none">
+<span>Updates</span>
+<span class="bg-neutral-800 text-neutral-300 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-neutral-700/60 leading-none">4</span>
+</button>
+<!-- Vulnerabilities Tab (1) -->
+<button class="text-neutral-400 hover:text-neutral-200 h-full flex items-center gap-1.5 px-0.5 transition-colors cursor-pointer focus:outline-none">
+<span>Vulnerabilities</span>
+<span class="bg-amber-950/80 border border-amber-800/80 text-amber-300 font-mono font-medium text-[10px] px-1.5 py-0.5 rounded-full leading-none">1</span>
+</button>
+<!-- Disabled Tab: Consolidate -->
+<button class="text-neutral-600 cursor-not-allowed h-full flex items-center gap-1.5 px-0.5 focus:outline-none" disabled="">
+<span>Consolidate</span>
+</button>
+</nav>
+<!-- 3. Split Workspace (Left 60% Dependency Table, Right 40% Detail Inspector) -->
+<main class="flex-1 flex flex-row overflow-hidden w-full">
+<!-- Left 60%: Dependency Table Area -->
+<section class="w-[60%] border-r border-neutral-700 bg-neutral-950 flex flex-col h-full overflow-hidden select-text">
+<!-- Sticky Table Header (32px tall) -->
+<div class="h-8 min-h-[32px] bg-neutral-900 border-b border-neutral-700 text-[11px] font-mono uppercase tracking-wider text-neutral-400 font-semibold grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] items-center px-3 select-none">
+<div class="flex items-center justify-center">
+<input aria-label="Select all dependencies" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="truncate pr-2">Module</div>
+<div class="truncate pr-2">Owning Module</div>
+<div class="truncate pr-2">Required</div>
+<div class="truncate pr-2">Selected</div>
+<div class="truncate pr-2">Update</div>
+<div class="text-center"></div>
+</div>
+<!-- Table Data Rows (Dense 40px Rows) -->
+<div class="flex-1 overflow-y-auto divide-y divide-neutral-800/80">
+<!-- Row 1: rsc.io/quote -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs hover:bg-neutral-900/60 transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select rsc.io/quote" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-200 font-medium truncate pr-2 flex items-center">
+              rsc.io/quote
+            </div>
+<div class="text-neutral-400 truncate pr-2 font-mono text-[11px]">
+              example.com/a
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.5.1
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.5.1
+            </div>
+<div class="truncate pr-2 flex items-center gap-1.5">
+<span class="font-mono text-neutral-200 text-[11px]">v1.5.2</span>
+<span class="bg-blue-950/80 text-blue-300 border border-blue-800/60 text-[10px] px-1.5 py-0.5 rounded leading-none">patch</span>
+</div>
+<div class="flex items-center justify-center text-neutral-500 hover:text-neutral-200">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Row 2: golang.org/x/text (Indirect) -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs hover:bg-neutral-900/60 transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select golang.org/x/text" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-200 truncate pr-2 flex items-center gap-1">
+<span class="truncate">golang.org/x/text</span>
+<span class="text-[10px] bg-neutral-800 text-neutral-400 px-1 py-0.5 rounded font-sans leading-none shrink-0 border border-neutral-700/50">indirect</span>
+</div>
+<div class="text-neutral-400 truncate pr-2 font-mono text-[11px]">
+              example.com/a
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2" title="v0.0.0-20170915032832">
+              v0.0.0-2017...
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2" title="v0.0.0-20170915032832">
+              v0.0.0-2017...
+            </div>
+<div class="truncate pr-2 flex items-center gap-1.5">
+<span class="font-mono text-neutral-200 text-[11px]">v0.43.0</span>
+<span class="bg-purple-950/80 text-purple-300 border border-purple-800/60 text-[10px] px-1.5 py-0.5 rounded leading-none">release</span>
+</div>
+<div class="flex items-center justify-center text-neutral-500 hover:text-neutral-200">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Row 3: ACTIVE SELECTED ROW (rsc.io/sampler) -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs bg-neutral-850/90 border-l-2 border-[#007acc] -ml-[2px] pl-[10px] transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select rsc.io/sampler" checked="" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-100 font-semibold truncate pr-2 flex items-center gap-1">
+<span class="truncate">rsc.io/sampler</span>
+<span class="text-[10px] bg-neutral-800 text-neutral-400 px-1 py-0.5 rounded font-sans leading-none shrink-0 border border-neutral-700/50">indirect</span>
+</div>
+<div class="text-neutral-300 truncate pr-2 font-mono text-[11px]">
+              example.com/a
+            </div>
+<div class="font-mono text-neutral-300 text-[11px] truncate pr-2">
+              v1.3.0
+            </div>
+<div class="font-mono text-neutral-300 text-[11px] truncate pr-2 font-medium">
+              v1.3.0
+            </div>
+<div class="truncate pr-2 flex items-center gap-1.5">
+<span class="font-mono text-cyan-300 font-medium text-[11px]">v1.99.99</span>
+<span class="bg-cyan-950/80 text-cyan-300 border border-cyan-800/60 text-[10px] px-1.5 py-0.5 rounded leading-none">minor</span>
+</div>
+<div class="flex items-center justify-center text-neutral-400 hover:text-neutral-100">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Row 4: rsc.io/quote (example.com/b) -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs hover:bg-neutral-900/60 transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select rsc.io/quote" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-200 truncate pr-2 flex items-center">
+              rsc.io/quote
+            </div>
+<div class="text-neutral-400 truncate pr-2 font-mono text-[11px]">
+              example.com/b
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.5.2
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.5.2
+            </div>
+<div class="truncate pr-2 flex items-center text-neutral-500 font-mono text-[11px]">
+<span>— up to date</span>
+</div>
+<div class="flex items-center justify-center text-neutral-500 hover:text-neutral-200">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Row 5: golang.org/x/text (example.com/b) -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs hover:bg-neutral-900/60 transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select golang.org/x/text" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-200 truncate pr-2 flex items-center gap-1">
+<span class="truncate">golang.org/x/text</span>
+<span class="text-[10px] bg-neutral-800 text-neutral-400 px-1 py-0.5 rounded font-sans leading-none shrink-0 border border-neutral-700/50">indirect</span>
+</div>
+<div class="text-neutral-400 truncate pr-2 font-mono text-[11px]">
+              example.com/b
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2" title="v0.0.0-20170915032832">
+              v0.0.0-2017...
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2" title="v0.0.0-20170915032832">
+              v0.0.0-2017...
+            </div>
+<div class="truncate pr-2 flex items-center gap-1.5">
+<span class="font-mono text-neutral-200 text-[11px]">v0.43.0</span>
+<span class="bg-purple-950/80 text-purple-300 border border-purple-800/60 text-[10px] px-1.5 py-0.5 rounded leading-none">release</span>
+</div>
+<div class="flex items-center justify-center text-neutral-500 hover:text-neutral-200">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Row 6: rsc.io/sampler (example.com/b) -->
+<div class="h-10 min-h-[40px] items-center grid grid-cols-[36px_2.2fr_1.4fr_1.1fr_1.1fr_1.4fr_36px] px-3 text-xs hover:bg-neutral-900/60 transition-colors cursor-pointer group">
+<div class="flex items-center justify-center">
+<input aria-label="Select rsc.io/sampler" class="rounded border-neutral-700 bg-neutral-950 text-[#007acc] focus:ring-0 w-3.5 h-3.5 cursor-pointer" type="checkbox"/>
+</div>
+<div class="font-mono text-neutral-200 truncate pr-2 flex items-center gap-1">
+<span class="truncate">rsc.io/sampler</span>
+<span class="text-[10px] bg-neutral-800 text-neutral-400 px-1 py-0.5 rounded font-sans leading-none shrink-0 border border-neutral-700/50">indirect</span>
+</div>
+<div class="text-neutral-400 truncate pr-2 font-mono text-[11px]">
+              example.com/b
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.3.0
+            </div>
+<div class="font-mono text-neutral-400 text-[11px] truncate pr-2">
+              v1.3.0
+            </div>
+<div class="truncate pr-2 flex items-center gap-1.5">
+<span class="font-mono text-cyan-300 text-[11px]">v1.99.99</span>
+<span class="bg-cyan-950/80 text-cyan-300 border border-cyan-800/60 text-[10px] px-1.5 py-0.5 rounded leading-none">minor</span>
+</div>
+<div class="flex items-center justify-center text-neutral-500 hover:text-neutral-200">
+<button aria-label="Row actions" class="p-0.5 rounded hover:bg-neutral-800 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Right 40%: Detail Inspector Area -->
+<aside class="w-[40%] bg-neutral-900 p-5 flex flex-col h-full overflow-y-auto select-text">
+<!-- Header -->
+<header>
+<div class="flex items-start justify-between">
+<div>
+<h2 class="text-[15px] font-mono font-semibold text-neutral-100 tracking-tight flex items-center gap-2">
+<span>rsc.io/sampler</span>
+<span class="text-[10px] font-sans font-normal text-neutral-400 bg-neutral-800 border border-neutral-700 px-1.5 py-0.5 rounded">indirect</span>
+</h2>
+<p class="text-xs text-neutral-400 mt-1">
+                required by <span class="font-mono text-neutral-300 font-medium">example.com/a</span>
+</p>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors" title="View in Source" type="button">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Two-column Definition List -->
+<dl class="mt-5 space-y-2.5 text-xs border-y border-neutral-800 py-4 font-body">
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Owning module</dt>
+<dd class="font-mono text-neutral-200 text-right">example.com/a</dd>
+</div>
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Declared in</dt>
+<dd>
+<code class="font-mono text-neutral-300 text-[11px] bg-neutral-950 px-1.5 py-0.5 rounded border border-neutral-800">/services/api/go.mod</code>
+</dd>
+</div>
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Required</dt>
+<dd class="font-mono text-neutral-300 text-right">v1.3.0</dd>
+</div>
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Selected</dt>
+<dd class="font-mono text-neutral-300 text-right">v1.3.0</dd>
+</div>
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Candidate</dt>
+<dd class="font-mono text-cyan-400 font-medium text-right">v1.99.99 (minor)</dd>
+</div>
+<div class="flex items-center justify-between">
+<dt class="text-neutral-400">Type</dt>
+<dd class="text-neutral-400 text-right">indirect dependency</dd>
+</div>
+</dl>
+<!-- Control Row -->
+<div class="mt-5 flex items-center gap-3">
+<div class="relative flex-1">
+<select class="w-full bg-neutral-950 border border-neutral-700 text-xs text-neutral-200 font-mono px-3 py-1.5 rounded focus:border-[#007acc] focus:outline-none focus:ring-1 focus:ring-[#007acc] appearance-none cursor-pointer">
+<option value="v1.99.99">v1.99.99 (latest)</option>
+<option value="v1.3.1">v1.3.1 (patch)</option>
+<option value="v1.3.0">v1.3.0 (current)</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[15px]">expand_more</span>
+</div>
+<button class="bg-[#007acc] hover:bg-[#0062a3] text-white text-xs font-medium px-4 py-1.5 rounded transition-colors shadow-none cursor-pointer leading-tight" type="button">
+            Update
+          </button>
+</div>
+<!-- Amber Advisory Callout Card -->
+<div class="mt-6 bg-amber-950/40 border border-amber-800/80 rounded p-3.5">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-amber-400 text-[18px]">warning</span>
+<span class="text-xs font-semibold text-amber-200">Advisory affects this module</span>
+</div>
+<p class="text-xs text-amber-300/90 mt-1.5 font-mono leading-relaxed">
+            GO-2025-0001 · reachable in sampler.DefaultText · fixed in v1.99.99
+          </p>
+<a class="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors cursor-pointer" href="#">
+<span>Open advisory</span>
+<span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+</a>
+</div>
+<!-- Bottom Footnote -->
+<div class="mt-auto pt-6 text-[11px] text-neutral-500 font-mono border-t border-neutral-800/60">
+          Runs <code class="text-neutral-400">go get</code> in /services/api with workspace mode off.
+        </div>
+</aside>
+</main>
+</div>
+</body></html>

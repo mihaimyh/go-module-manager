@@ -7,11 +7,15 @@
 src/**
 test/**
 docs/**
+scripts/**
+.stitch/**
 node_modules/**
 esbuild.mjs
 tsconfig.json
 package-lock.json
 GLOSSARY.md
 *.vsix
+dist/harness.html
+dist/model-entry.cjs
 **/*.map
 **/*.test.ts

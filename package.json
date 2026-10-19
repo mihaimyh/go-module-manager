@@ -43,6 +43,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "harness": "npm run build && node scripts/harness.mjs",
     "package": "npm run typecheck && npm run build && vsce package --no-dependencies",
     "vscode:prepublish": "npm run build"
   },
