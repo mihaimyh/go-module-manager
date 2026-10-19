@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Advisory } from '../../core/model';
-import { mergeResolution } from '../../core/model';
+import { advisoryTargets, mergeResolution, withAdvisories } from '../../core/model';
 import type { AdvisorySource } from './advisory';
 import { createGoAdapter } from './adapter';
 import type { GoRunner, RunOptions, RunResult } from './runner';
@@ -58,7 +58,7 @@ describe('advisory wiring', () => {
     const source: AdvisorySource = {
       async lookup(dependencies) {
         queried.push([...dependencies]);
-        return new Map([['rsc.io/quote', [advisory]]]);
+        return new Map([['rsc.io/quote@v1.5.1', [advisory]]]);
       },
     };
 
@@ -72,7 +72,8 @@ describe('advisory wiring', () => {
     }
 
     const resolved = await resolve(manifestPath);
-    const model = await attach(mergeResolution(declared, resolved));
+    const merged = mergeResolution(declared, resolved);
+    const model = withAdvisories(merged, await attach(advisoryTargets(merged)));
 
     expect(queried).toEqual([[{ name: 'rsc.io/quote', version: 'v1.5.1' }]]);
     expect(model.rows[0]?.advisories).toEqual([advisory]);

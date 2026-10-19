@@ -1,5 +1,5 @@
 import type { EcosystemAdapter } from '../../core/adapter';
-import { withAdvisories } from '../../core/model';
+import type { Advisory, AdvisoryTarget } from '../../core/model';
 import type { AdvisorySource } from './advisory';
 import { downloadModules } from './download';
 import { readWorkspace } from './read';
@@ -18,6 +18,7 @@ export function createGoAdapter(
 ): EcosystemAdapter {
   const resolver = createProjectResolver(runner);
   const updater = createUpdater(runner);
+  const source = options.advisories;
 
   return {
     id: 'go',
@@ -30,19 +31,14 @@ export function createGoAdapter(
     update: (request) => updater.update(request),
     undo: (manifestPath) => updater.undo(manifestPath),
     tidy: (manifestPath) => tidyProject(manifestPath, runner),
-    advisories: async (model) => {
-      const source = options.advisories;
-      if (source === undefined) {
-        return model;
-      }
-      const dependencies = model.rows.flatMap((row) =>
-        row.resolvedVersion === undefined
-          ? []
-          : [{ name: row.name, version: row.resolvedVersion }],
-      );
-      return withAdvisories(model, await source.lookup(dependencies));
-    },
     toolchainUrl: 'https://go.dev/dl/',
+    ...(source === undefined
+      ? {}
+      : {
+          advisories: (
+            targets: readonly AdvisoryTarget[],
+          ): Promise<ReadonlyMap<string, readonly Advisory[]>> => source.lookup(targets),
+        }),
   };
 }
 

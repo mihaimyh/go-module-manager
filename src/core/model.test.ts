@@ -4,7 +4,6 @@ import {
   mergeResolution,
   mergeRowFailure,
   withAdvisories,
-  type Advisory,
   type DependencyInput,
   type ProjectInput,
   type ResolvedDependency,
@@ -64,24 +63,6 @@ describe('assemblePanelModel', () => {
     expect(hidden.rows[0]?.candidate).toBeUndefined();
     expect(hidden.rows[0]?.kind).toBe('none');
     expect(shown.rows[0]?.candidate).toBe('v2.0.0-rc.1');
-  });
-
-  it('attaches advisories by dependency name', () => {
-    const advisory: Advisory = { id: 'GO-0000-00001', summary: 'reachable in sampler', fixedIn: 'v1.99.99' };
-    const model = assemblePanelModel(
-      project([
-        { name: 'rsc.io/sampler', version: 'v1.3.0', transitive: true },
-        { name: 'rsc.io/quote', version: 'v1.5.1' },
-      ]),
-      new Map(),
-      { advisories: new Map([['rsc.io/sampler', [advisory]]]) },
-    );
-
-    const sampler = model.rows.find((row) => row.name === 'rsc.io/sampler');
-    const quote = model.rows.find((row) => row.name === 'rsc.io/quote');
-
-    expect(sampler?.advisories).toEqual([advisory]);
-    expect(quote?.advisories).toEqual([]);
   });
 
   it('summarises each project with its dependency count', () => {
@@ -163,17 +144,23 @@ describe('project failures', () => {
 });
 
 describe('mergeResolution', () => {
-  const declared = assemblePanelModel(
-    project([
-      { name: 'rsc.io/quote', version: 'v1.5.1' },
-      { name: 'rsc.io/sampler', version: 'v1.3.0', transitive: true },
+  const declared = withAdvisories(
+    mergeResolution(
+      assemblePanelModel(
+        project([
+          { name: 'rsc.io/quote', version: 'v1.5.1' },
+          { name: 'rsc.io/sampler', version: 'v1.3.0', transitive: true },
+        ]),
+        new Map(),
+      ),
+      {
+        manifestPath: MANIFEST,
+        dependencies: [{ name: 'rsc.io/sampler', version: 'v1.3.0' }],
+      },
+    ),
+    new Map([
+      ['rsc.io/sampler@v1.3.0', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
     ]),
-    new Map(),
-    {
-      advisories: new Map([
-        ['rsc.io/sampler', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
-      ]),
-    },
   );
 
   it('fills the resolved version and the candidate for the matching project', () => {
@@ -252,7 +239,7 @@ describe('withAdvisories', () => {
       new Map(),
     );
     const matches = new Map([
-      ['rsc.io/sampler', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
+      ['rsc.io/sampler@v1.3.0', [{ id: 'GO-0000-00001', summary: 'reachable in sampler' }]],
     ]);
 
     const unresolved = withAdvisories(base, matches);

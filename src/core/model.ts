@@ -7,6 +7,21 @@ export interface Advisory {
   readonly fixedIn?: string;
 }
 
+/** One resolved dependency to look up, independent of the project that declared it. */
+export interface AdvisoryTarget {
+  readonly name: string;
+  readonly version: string;
+}
+
+/**
+ * Advisories depend on the resolved version, so they are keyed by both. Keying
+ * by name alone would mark one project's row because another project resolved
+ * an affected version.
+ */
+export function advisoryKey(name: string, version: string): string {
+  return `${name}@${version}`;
+}
+
 /** A manifest and the code it governs: one `go.mod`, one `pubspec.yaml`. */
 export interface ProjectInput {
   readonly manifestPath: string;
@@ -82,7 +97,6 @@ export interface PanelModel {
 
 export interface AssembleOptions {
   readonly includePrereleases?: boolean;
-  readonly advisories?: ReadonlyMap<string, readonly Advisory[]>;
   readonly failures?: readonly ProjectFailure[];
 }
 
@@ -116,7 +130,7 @@ export function assemblePanelModel(
         transitive: dependency.transitive,
         ...(selected.candidate === undefined ? {} : { candidate: selected.candidate }),
         kind: selected.kind,
-        advisories: options.advisories?.get(dependency.name) ?? [],
+        advisories: [],
       });
     }
   }
@@ -183,9 +197,33 @@ export function withAdvisories(
     rows: model.rows.map((row) =>
       row.resolvedVersion === undefined
         ? row
-        : { ...row, advisories: advisories.get(row.name) ?? [] },
+        : {
+            ...row,
+            advisories:
+              advisories.get(advisoryKey(row.name, row.resolvedVersion)) ?? [],
+          },
     ),
   };
+}
+
+/** Every distinct resolved dependency in the model, for one lookup. */
+export function advisoryTargets(model: PanelModel): AdvisoryTarget[] {
+  const seen = new Set<string>();
+  const targets: AdvisoryTarget[] = [];
+
+  for (const row of model.rows) {
+    if (row.resolvedVersion === undefined) {
+      continue;
+    }
+    const key = advisoryKey(row.name, row.resolvedVersion);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    targets.push({ name: row.name, version: row.resolvedVersion });
+  }
+
+  return targets;
 }
 
 /** A failed update stays on its row until the next read replaces the model. */

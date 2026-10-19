@@ -1,7 +1,7 @@
 [
   {
     "id": "GO-0000-00001",
-    "summary": "reachable in sampler.DefaultText",
+    "summary": "vulnerable function in sampler.DefaultText",
     "ranges": [
       {
         "module": "rsc.io/sampler",

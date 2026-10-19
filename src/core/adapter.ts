@@ -1,4 +1,9 @@
-import type { PanelModel, ResolvedProject } from './model';
+import type {
+  Advisory,
+  AdvisoryTarget,
+  PanelModel,
+  ResolvedProject,
+} from './model';
 
 export interface ResolveOptions {
   /** Ignore a settled cache entry; an in-flight lookup is still shared. */
@@ -43,7 +48,9 @@ export interface EcosystemAdapter {
   /** Tidies one project; only ever called from its own confirmed action. */
   tidy?(manifestPath: string): Promise<void>;
   /** Attaches advisories for the resolved versions in the model. */
-  advisories?(model: PanelModel): Promise<PanelModel>;
+  advisories?(
+    targets: readonly AdvisoryTarget[],
+  ): Promise<ReadonlyMap<string, readonly Advisory[]>>;
   /** Where to send a user whose toolchain is missing. */
   readonly toolchainUrl?: string;
 }

@@ -570,6 +570,11 @@ tbody th.col-module {
   color: var(--gmm-muted);
 }
 
+.chip.advisory {
+  color: var(--gmm-warning);
+  border-color: var(--gmm-warning);
+}
+
 .scan-note {
   margin: 0;
   padding: 8px 16px;

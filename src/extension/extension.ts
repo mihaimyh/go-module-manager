@@ -2,7 +2,14 @@ import * as vscode from 'vscode';
 import type { EcosystemAdapter, UpdateRequest, UpdateResult } from '../core/adapter';
 import { planBulkUpdate } from '../core/bulk';
 import type { DependencySelection, RecoveryAction } from '../core/messages';
-import { mergeFailure, mergeRowFailure, type FailureKind, type PanelModel } from '../core/model';
+import {
+  advisoryTargets,
+  mergeFailure,
+  mergeRowFailure,
+  withAdvisories,
+  type FailureKind,
+  type PanelModel,
+} from '../core/model';
 import { resolveProjects } from '../core/updates';
 import { detectAdapters } from '../ecosystems';
 import { GmmPanel } from './panel';
@@ -413,13 +420,17 @@ async function fillUpdates(
     return;
   }
 
+  const base = current?.model ?? resolved;
   try {
-    const withAdvisories = await attachAdvisories(resolved);
+    const matches = await attachAdvisories(advisoryTargets(base));
     if (token !== cycle) {
       return;
     }
-    current = { ...loaded, model: withAdvisories };
-    GmmPanel.update(withAdvisories);
+    // A failure may have painted while the lookup ran; merge into the latest.
+    const latest = current?.model ?? base;
+    const merged = withAdvisories(latest, matches);
+    current = { ...loaded, model: merged };
+    GmmPanel.update(merged);
   } catch (error) {
     void vscode.window.showWarningMessage(
       `GMM: advisory lookup failed. ${messageOf(error)}`,

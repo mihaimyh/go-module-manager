@@ -1,4 +1,4 @@
-import type { Advisory } from '../../core/model';
+import { advisoryKey, type Advisory } from '../../core/model';
 import { compareVersions, parseVersion } from '../../core/version';
 
 export interface AffectedRange {
@@ -21,9 +21,10 @@ export interface AdvisorySource {
 }
 
 /**
- * Pure: matches declarations against affected ranges. A version is affected
- * when it is at or above `introduced` and below `fixed`; a range without a
- * `fixed` bound is open-ended.
+ * Pure: matches resolved versions against affected ranges. A version is
+ * affected when it is at or above `introduced` and below `fixed`; a range
+ * without a parseable `fixed` bound is open-ended. Results are keyed by
+ * `name@version` so two projects at different versions do not share a match.
  */
 export function matchAdvisories(
   documents: readonly AdvisoryDocument[],
@@ -49,13 +50,18 @@ export function matchAdvisories(
 
     const matches: Advisory[] = [];
     for (const document of byModule.get(dependency.name) ?? []) {
-      const ranges = document.ranges.filter((range) => range.module === dependency.name);
-      const affecting = ranges.find((range) => affects(range, dependency.version));
+      const affecting = document.ranges
+        .filter((range) => range.module === dependency.name)
+        .find((range) => affects(range, dependency.version));
       if (affecting === undefined) {
         continue;
       }
 
-      const fixedIn = fixedVersionOf(ranges, dependency.version);
+      const fixedIn =
+        affecting.fixed !== undefined && parseVersion(affecting.fixed) !== undefined
+          ? affecting.fixed
+          : undefined;
+
       matches.push({
         id: document.id,
         summary: document.summary,
@@ -64,7 +70,7 @@ export function matchAdvisories(
     }
 
     if (matches.length > 0) {
-      result.set(dependency.name, dedupeById(matches));
+      result.set(advisoryKey(dependency.name, dependency.version), matches);
     }
   }
 
@@ -76,22 +82,14 @@ function affects(range: AffectedRange, version: string): boolean {
   if (introduced !== undefined && compareVersions(version, introduced) < 0) {
     return false;
   }
-  if (range.fixed !== undefined && compareVersions(version, range.fixed) >= 0) {
-    return false;
+  if (range.fixed === undefined) {
+    return true;
   }
-  return true;
-}
-
-/** The lowest fixed bound above the resolved version, if the advisory has one. */
-function fixedVersionOf(
-  ranges: readonly AffectedRange[],
-  version: string,
-): string | undefined {
-  const fixes = ranges
-    .flatMap((range) => (range.fixed === undefined ? [] : [range.fixed]))
-    .filter((fixed) => compareVersions(fixed, version) > 0)
-    .sort(compareVersions);
-  return fixes[0];
+  // An unparseable bound cannot be trusted to clear the advisory.
+  if (parseVersion(range.fixed) === undefined) {
+    return true;
+  }
+  return compareVersions(version, range.fixed) < 0;
 }
 
 /** Go's database writes "0" for "from the first version". */
@@ -100,15 +98,4 @@ function normalizeBound(bound: string | undefined): string | undefined {
     return undefined;
   }
   return bound;
-}
-
-function dedupeById(advisories: readonly Advisory[]): Advisory[] {
-  const seen = new Set<string>();
-  return advisories.filter((advisory) => {
-    if (seen.has(advisory.id)) {
-      return false;
-    }
-    seen.add(advisory.id);
-    return true;
-  });
 }

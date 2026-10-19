@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mergeFailure, type PanelModel } from '../src/core/model';
+import { advisoryTargets, mergeFailure, withAdvisories, type PanelModel } from '../src/core/model';
 import { resolveProjects } from '../src/core/updates';
 import {
   matchAdvisories,
@@ -66,18 +66,19 @@ if (resolve === undefined) {
 
 void (async () => {
   const declared = await adapter.read(root);
-  const resolved = await resolveProjects(
+  const model = await resolveProjects(
     declared,
     (manifestPath, options) => resolve(manifestPath, options),
     () => undefined,
     { concurrency: 2 },
   );
-  const withAdvisories = (await adapter.advisories?.(resolved)) ?? resolved;
-  const model = withFixtureFailure(withAdvisories);
+  const matches = (await adapter.advisories?.(advisoryTargets(model))) ?? new Map();
+  const withMatchedAdvisories = withAdvisories(model, matches);
+  const withFailure = withFixtureFailure(withMatchedAdvisories);
 
   process.stdout.write(
     JSON.stringify({
-      model,
+      model: withFailure,
       progress: { done: model.projects.length, total: model.projects.length },
     }),
   );

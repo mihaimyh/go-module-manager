@@ -420,6 +420,14 @@ function Row({
           {row.name}
         </span>
         {row.transitive ? <span className="chip">indirect</span> : null}
+        {row.advisories.length > 0 ? (
+          <span
+            className="chip advisory"
+            title={row.advisories.map((advisory) => advisory.id).join(', ')}
+          >
+            advisory
+          </span>
+        ) : null}
       </th>
       <td className="col-owning mono muted" title={row.project}>
         {row.project}
@@ -507,8 +515,8 @@ function EmptyState({ tab }: { readonly tab: Tab }): JSX.Element {
   if (tab === 'vulnerabilities') {
     return (
       <p className="empty">
-        No advisory data yet. Module-level badges arrive with the advisory cache; reachable
-        findings arrive with the precise scan.
+        No advisories matched the resolved versions. Reachability scanning is a later
+        ticket.
       </p>
     );
   }
