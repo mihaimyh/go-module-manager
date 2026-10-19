@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- Find `go.mod` files deeper than one level. Discovery now walks the tree (up to six levels, skipping `node_modules` and dot-folders) and stops at a module, so layouts like `src/backend/server/go.mod` work.
+
 ## 0.1.0
 
 First usable release.

@@ -1,30 +1,61 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+const MAX_DEPTH = 6;
+const MAX_DIRECTORIES = 5000;
+
+const SKIPPED = new Set([
+  'node_modules',
+  'vendor',
+  'dist',
+  'build',
+  'target',
+  'coverage',
+]);
+
 /**
- * Project directories are the workspace root (when it holds a manifest) and its
- * immediate children. Deeper layouts would need a workspace file, which the
- * adapter does not read.
+ * Finds project directories by walking down from the workspace root.
+ *
+ * Skips dependency and tooling directories (and every dot-directory), stops
+ * descending once a directory holds a manifest — a Go module is the project
+ * boundary — and caps the walk so a pathological tree cannot hang the panel.
  */
 export function findManifestDirectories(
   workspaceRoot: string,
   manifestFile: string,
 ): readonly string[] {
-  const directories: string[] = [];
+  const found: string[] = [];
+  let visited = 0;
 
-  if (existsSync(join(workspaceRoot, manifestFile))) {
-    directories.push(workspaceRoot);
-  }
-
-  for (const entry of readdirSync(workspaceRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) {
-      continue;
+  const walk = (directory: string, depth: number): void => {
+    if (visited >= MAX_DIRECTORIES) {
+      return;
     }
-    const directory = join(workspaceRoot, entry.name);
+    visited += 1;
+
     if (existsSync(join(directory, manifestFile))) {
-      directories.push(directory);
+      found.push(directory);
+      return;
     }
-  }
+    if (depth >= MAX_DEPTH) {
+      return;
+    }
 
-  return directories;
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || SKIPPED.has(entry.name)) {
+        continue;
+      }
+      walk(join(directory, entry.name), depth + 1);
+    }
+  };
+
+  walk(workspaceRoot, 0);
+  return found.sort();
 }

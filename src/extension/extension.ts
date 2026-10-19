@@ -557,7 +557,9 @@ async function loadModel(
     });
     adapter = detected;
     if (!adapter) {
-      void vscode.window.showErrorMessage(`GMM: no supported manifest under ${root}.`);
+      void vscode.window.showErrorMessage(
+        `GMM: no supported manifest under ${root}. Searched six levels deep, skipping node_modules and dot-folders.`,
+      );
       return undefined;
     }
     return { adapter, model: await adapter.read(root) };

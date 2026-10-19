@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { detectAdapters } from './index';
+import { findManifestDirectories } from './discovery';
 
 let workspace: string | undefined;
 
@@ -33,6 +34,38 @@ describe('detectAdapters', () => {
     writeFileSync(join(module, 'go.mod'), 'module example.com/api\n');
 
     expect(detectAdapters(root).map((adapter) => adapter.id)).toEqual(['go']);
+  });
+
+  it('finds a manifest several levels down', () => {
+    const root = newWorkspace();
+    const module = join(root, 'src', 'backend', 'server');
+    mkdirSync(module, { recursive: true });
+    writeFileSync(join(module, 'go.mod'), 'module example.com/server\n');
+
+    expect(detectAdapters(root).map((adapter) => adapter.id)).toEqual(['go']);
+  });
+
+  it('skips dependency, tooling and dot directories', () => {
+    const root = newWorkspace();
+    const skipped = join(root, 'node_modules', 'pkg');
+    const worktree = join(root, '.kilo', 'worktrees', 'copy');
+    mkdirSync(skipped, { recursive: true });
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(skipped, 'go.mod'), 'module example.com/pkg\n');
+    writeFileSync(join(worktree, 'go.mod'), 'module example.com/copy\n');
+
+    expect(detectAdapters(root)).toEqual([]);
+  });
+
+  it('stops descending below a module', () => {
+    const root = newWorkspace();
+    const module = join(root, 'api');
+    const nested = join(module, 'examples', 'demo');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(module, 'go.mod'), 'module example.com/api\n');
+    writeFileSync(join(nested, 'go.mod'), 'module example.com/demo\n');
+
+    expect(findManifestDirectories(root, 'go.mod')).toEqual([module]);
   });
 
   it('reuses the adapter so its cache and undo snapshot survive a reload', () => {
