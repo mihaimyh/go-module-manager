@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.16
+
+### Fixed
+
+- The version picker and the owning-module filter use a themed listbox instead of the native `<select>` popup, which Chromium drew in the system light theme over the dark panel.
+- Long version lists scroll inside a 320px menu, and the menu opens above the trigger when there is no room below.
+- Keyboard control: arrows, Home/End, Enter/Space, Escape and Tab. Clicking outside or scrolling closes it.
+- Native controls follow the VS Code theme through `color-scheme` on `vscode-dark` and `vscode-light`.
 ## 0.1.15
 
 ### Added

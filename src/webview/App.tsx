@@ -5,9 +5,9 @@ import { hasReachable } from '../core/scan';
 import type { Advisory, DependencyRow, FailureKind, PanelModel } from '../core/model';
 import { sortRows, type SortKey, type SortState } from '../core/sort';
 import { compareVersions, parseVersion, type UpdateKind } from '../core/version';
+import { Dropdown } from './Dropdown';
 import {
   ArrowRightIcon,
-  ChevronIcon,
   ExternalLinkIcon,
   MoreIcon,
   PackageIcon,
@@ -269,23 +269,18 @@ export function App({
             />
           </div>
           {projects.length > 1 ? (
-            <div className="select">
-              <select
-                aria-label="Owning module"
-                value={moduleFilter}
-                onChange={(event) => setModuleFilter(event.target.value)}
-              >
-                <option value="all">All modules ({projects.length})</option>
-                {projects.map((project) => (
-                  <option key={project.manifestPath} value={project.name}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-              <span className="select-icon" aria-hidden="true">
-                <ChevronIcon />
-              </span>
-            </div>
+            <Dropdown
+              label="Owning module"
+              value={moduleFilter}
+              options={[
+                { value: 'all', label: `All modules (${projects.length})` },
+                ...projects.map((project) => ({
+                  value: project.name,
+                  label: project.name,
+                })),
+              ]}
+              onChange={setModuleFilter}
+            />
           ) : null}
           <label className="checkbox">
             <input
@@ -896,22 +891,16 @@ function Inspector({
       </dl>
 
       <div className="controls">
-        <div className="select grow">
-          <select
-            aria-label="Version to install"
-            value={chosen}
-            onChange={(event) => setVersion(event.target.value)}
-          >
-            {options.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {candidate}
-              </option>
-            ))}
-          </select>
-          <span className="select-icon" aria-hidden="true">
-            <ChevronIcon />
-          </span>
-        </div>
+        <Dropdown
+          label="Version to install"
+          value={chosen}
+          options={options.map((candidate) => ({
+            value: candidate,
+            label: candidate,
+          }))}
+          onChange={setVersion}
+          grow
+        />
         <button
           type="button"
           className="button primary"
