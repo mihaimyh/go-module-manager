@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Added
+
+- A GMM button in the Explorer toolbar, so the panel opens without having a `go.mod` file in focus. The editor-title button stays scoped to `go.mod`.
+
 ## 0.1.1
 
 ### Fixed

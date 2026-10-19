@@ -2,7 +2,7 @@
   "name": "go-module-manager",
   "displayName": "GMM — Go Module Manager",
   "description": "See and move the Go dependencies of a workspace without touching code you did not ask for.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "mihaimyh",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -44,7 +44,8 @@
     "commands": [
       {
         "command": "gmm.openPanel",
-        "title": "GMM: Open Go Module Manager"
+        "title": "GMM: Open Go Module Manager",
+        "icon": "$(extensions)"
       }
     ],
     "menus": {
@@ -53,6 +54,13 @@
           "command": "gmm.openPanel",
           "when": "resourceFilename == go.mod && resourceScheme == file",
           "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gmm.openPanel",
+          "when": "view == workbench.explorer.fileView",
+          "group": "navigation@9"
         }
       ]
     }
