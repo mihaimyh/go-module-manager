@@ -77,10 +77,10 @@ export function activate(context: vscode.ExtensionContext): void {
 function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
   return {
     onRefresh: () => {
-      void refresh(context, true);
+      void refreshFromUser(context);
     },
     onRecover: (manifestPath, action) => {
-      recover(context, manifestPath, action);
+      void handleRecovery(context, manifestPath, action);
     },
     onUpdate: (request) => {
       void updateDependency(context, request);
@@ -139,14 +139,27 @@ function abortIfIdle(): void {
   }
 }
 
-/** Runs a user-visible operation with one shared loading state. */
-async function withBusy<T>(label: string, work: () => Promise<T>): Promise<T> {
+/**
+ * Runs a user-visible panel action under the shared busy gate. Posts `label`
+ * immediately so buttons disable during confirm dialogs as well as the work.
+ */
+async function runAction<T>(label: string, work: () => Promise<T>): Promise<T | undefined> {
+  if (updating) {
+    return undefined;
+  }
+  updating = true;
   GmmPanel.postBusy(label);
   try {
     return await work();
   } finally {
     GmmPanel.postBusy(undefined);
+    updating = false;
   }
+}
+
+/** Updates the busy strip label while already inside `runAction`. */
+function setBusy(label: string): void {
+  GmmPanel.postBusy(label);
 }
 
 function logInvocation(invocation: GoInvocation): void {
@@ -253,6 +266,29 @@ async function ensureWorkspace(
 }
 
 /**
+ * User-clicked Check for updates: busy while reading the workspace, then the
+ * progress strip while resolving. Holds the write gate for the whole lookup.
+ */
+async function refreshFromUser(context: vscode.ExtensionContext): Promise<void> {
+  await runAction('Reading workspace…', async () => {
+    resetSession();
+    const loaded = await loadModel(context);
+    if (!loaded) {
+      return;
+    }
+    current = loaded;
+    const token = ++cycle;
+    // Seed progress, drop the busy label, and keep `updating` until resolve finishes.
+    GmmPanel.update(loaded.model, {
+      done: 0,
+      total: loaded.model.projects.length,
+    });
+    GmmPanel.postBusy(undefined);
+    await fillUpdates(loaded, true, token);
+  });
+}
+
+/**
  * Reloads the panel model. Watcher/config refreshes are skipped while a write
  * is in flight (`updating`); callers that just finished a write pass
  * `force: true` so the panel reflects the new go.mod.
@@ -273,16 +309,13 @@ async function refresh(
 
   current = loaded;
   const token = ++cycle;
-  GmmPanel.update(loaded.model);
+  // Seed progress before returning so the webview stays locked across the
+  // hand-off from a cleared busy strip into fillUpdates.
+  GmmPanel.update(loaded.model, {
+    done: 0,
+    total: loaded.model.projects.length,
+  });
   void fillUpdates(loaded, fresh, token);
-}
-
-function recover(
-  context: vscode.ExtensionContext,
-  manifestPath: string,
-  action: RecoveryAction,
-): void {
-  void handleRecovery(context, manifestPath, action);
 }
 
 async function handleRecovery(
@@ -308,20 +341,23 @@ async function handleRecovery(
       );
       return;
     }
-    const confirmed = await vscode.window.showWarningMessage(
-      "GMM: delete Go's damaged checksum state? This removes the signed tree note in GOPATH\\pkg\\sumdb, the lookup cache, and any zero-filled cache metadata; downloaded modules are kept and refetched as needed.",
-      { modal: true },
-      'Repair',
-    );
-    if (confirmed !== 'Repair') {
-      return;
-    }
-    try {
-      await withBusy('Repairing Go cache…', clean);
-      await refresh(context, true);
-    } catch (error) {
-      void vscode.window.showErrorMessage(`GMM: ${messageOf(error)}`);
-    }
+    await runAction('Confirming checksum repair…', async () => {
+      const confirmed = await vscode.window.showWarningMessage(
+        "GMM: delete Go's damaged checksum state? This removes the signed tree note in GOPATH\\pkg\\sumdb, the lookup cache, and any zero-filled cache metadata; downloaded modules are kept and refetched as needed.",
+        { modal: true },
+        'Repair',
+      );
+      if (confirmed !== 'Repair') {
+        return;
+      }
+      try {
+        setBusy('Repairing Go cache…');
+        await clean();
+        await refresh(context, true, { force: true });
+      } catch (error) {
+        void vscode.window.showErrorMessage(`GMM: ${messageOf(error)}`);
+      }
+    });
     return;
   }
 
@@ -333,16 +369,18 @@ async function handleRecovery(
       );
       return;
     }
-    try {
-      await withBusy('Downloading modules…', () => repair(manifestPath));
-      await refresh(context, false);
-    } catch (error) {
-      showFailure(manifestPath, error);
-    }
+    await runAction('Downloading modules…', async () => {
+      try {
+        await repair(manifestPath);
+        await refresh(context, false, { force: true });
+      } catch (error) {
+        showFailure(manifestPath, error);
+      }
+    });
     return;
   }
 
-  void refresh(context, true);
+  void refreshFromUser(context);
 }
 
 /** A failed recovery is a project failure like any other, not a transient toast. */
@@ -496,51 +534,49 @@ async function updateDependency(
   context: vscode.ExtensionContext,
   request: UpdateRequest,
 ): Promise<void> {
-  if (updating) {
-    return;
-  }
   const loaded = current;
   if (loaded === undefined || loaded.adapter.update === undefined) {
     return;
   }
 
-  updating = true;
-  try {
-    const results = await withBusy('Updating dependencies…', () =>
-      runGroups(context, loaded.adapter, [request]),
-    );
-    const result = results[0];
-    const change = request.changes[0];
-    if (result === undefined || change === undefined) {
-      return;
-    }
-    if (result.status === 'failed') {
-      showUpdateFailure(`GMM: ${change.name} could not be updated.`, result.message ?? '');
-      return;
-    }
+  const results = await runAction('Updating dependencies…', () =>
+    runGroups(context, loaded.adapter, [request]),
+  );
+  if (results === undefined) {
+    return;
+  }
 
-    const fresh = current;
-    if (fresh === undefined) {
-      return;
-    }
+  const result = results[0];
+  const change = request.changes[0];
+  if (result === undefined || change === undefined) {
+    return;
+  }
+  if (result.status === 'failed') {
+    showUpdateFailure(`GMM: ${change.name} could not be updated.`, result.message ?? '');
+    return;
+  }
 
-    // Report what the toolchain resolved, not what was requested.
-    const resolved = fresh.model.rows.find(
-      (row) => row.manifestPath === request.manifestPath && row.name === change.name,
-    )?.resolvedVersion;
+  const fresh = current;
+  if (fresh === undefined) {
+    return;
+  }
 
-    const choice = await vscode.window.showInformationMessage(
-      resolved === undefined
-        ? `GMM: ${change.name} updated`
-        : `GMM: ${change.name} resolved to ${resolved}`,
-      'Undo',
-    );
-    if (choice === 'Undo') {
+  // Report what the toolchain resolved, not what was requested.
+  const resolved = fresh.model.rows.find(
+    (row) => row.manifestPath === request.manifestPath && row.name === change.name,
+  )?.resolvedVersion;
+
+  const choice = await vscode.window.showInformationMessage(
+    resolved === undefined
+      ? `GMM: ${change.name} updated`
+      : `GMM: ${change.name} resolved to ${resolved}`,
+    'Undo',
+  );
+  if (choice === 'Undo') {
+    await runAction('Undoing…', async () => {
       await undoResults(loaded.adapter, [request.manifestPath]);
       await refresh(context, false, { force: true });
-    }
-  } finally {
-    updating = false;
+    });
   }
 }
 
@@ -548,9 +584,6 @@ async function bulkUpdate(
   context: vscode.ExtensionContext,
   selection: readonly DependencySelection[],
 ): Promise<void> {
-  if (updating) {
-    return;
-  }
   const loaded = current;
   if (loaded === undefined || loaded.adapter.update === undefined) {
     return;
@@ -569,8 +602,7 @@ async function bulkUpdate(
     return;
   }
 
-  updating = true;
-  try {
+  const outcome = await runAction('Confirming update…', async () => {
     const planned = groups.reduce((total, group) => total + group.changes.length, 0);
     const skipped = Math.max(0, selection.length - planned);
     const confirmed = await vscode.window.showWarningMessage(
@@ -581,40 +613,43 @@ async function bulkUpdate(
       'Update',
     );
     if (confirmed !== 'Update') {
-      return;
+      return undefined;
     }
 
-    const results = await withBusy('Updating dependencies…', () =>
-      runGroups(context, loaded.adapter, groups),
+    setBusy('Updating dependencies…');
+    return runGroups(context, loaded.adapter, groups);
+  });
+  if (outcome === undefined) {
+    return;
+  }
+
+  const failed = outcome.filter((result) => result.status === 'failed');
+  const succeeded = outcome.filter((result) => result.status === 'updated');
+
+  if (failed.length > 0) {
+    showUpdateFailure(
+      `GMM: ${failed.length} of ${outcome.length} dependency updates failed.`,
+      failed[0]?.message ?? '',
     );
-    const failed = results.filter((result) => result.status === 'failed');
-    const succeeded = results.filter((result) => result.status === 'updated');
+  }
+  if (succeeded.length === 0) {
+    return;
+  }
 
-    if (failed.length > 0) {
-      showUpdateFailure(
-        `GMM: ${failed.length} of ${results.length} dependency updates failed.`,
-        failed[0]?.message ?? '',
-      );
-    }
-    if (succeeded.length === 0) {
-      return;
-    }
-
-    GmmPanel.clearSelection();
-    const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
-    const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
-    const choice = await vscode.window.showInformationMessage(
-      `GMM: ${moved} dependencies updated in ${projectCount} project(s).`,
-      'Undo',
-    );
-    if (choice === 'Undo') {
+  GmmPanel.clearSelection();
+  const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
+  const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
+  const choice = await vscode.window.showInformationMessage(
+    `GMM: ${moved} dependencies updated in ${projectCount} project(s).`,
+    'Undo',
+  );
+  if (choice === 'Undo') {
+    await runAction('Undoing…', async () => {
       await undoResults(loaded.adapter, [
         ...new Set(succeeded.map((result) => result.manifestPath)),
       ]);
       await refresh(context, false, { force: true });
-    }
-  } finally {
-    updating = false;
+    });
   }
 }
 
@@ -622,9 +657,6 @@ async function tidyProjects(
   context: vscode.ExtensionContext,
   manifests: readonly string[],
 ): Promise<void> {
-  if (updating) {
-    return;
-  }
   const loaded = current;
   if (loaded === undefined) {
     return;
@@ -644,8 +676,7 @@ async function tidyProjects(
     return;
   }
 
-  updating = true;
-  try {
+  const succeeded = await runAction('Confirming go mod tidy…', async () => {
     const confirmed = await vscode.window.showWarningMessage(
       `Run go mod tidy in ${targets.length} project(s)? This removes requirements nothing imports yet.\n${targets.join(
         '\n',
@@ -654,28 +685,32 @@ async function tidyProjects(
       'Run tidy',
     );
     if (confirmed !== 'Run tidy') {
-      return;
+      return 0;
     }
 
-    await withBusy('Running go mod tidy…', async () => {
-      for (const manifestPath of targets) {
-        try {
-          await tidy(manifestPath);
-        } catch (error) {
-          showFailure(manifestPath, error);
-        }
+    setBusy('Running go mod tidy…');
+    let count = 0;
+    for (const manifestPath of targets) {
+      try {
+        await tidy(manifestPath);
+        count += 1;
+      } catch (error) {
+        showFailure(manifestPath, error);
       }
-    });
+    }
     await refresh(context, false, { force: true });
-  } finally {
-    updating = false;
+    return count;
+  });
+  if (succeeded !== undefined && succeeded > 0) {
+    void vscode.window.showInformationMessage(
+      succeeded === 1
+        ? 'GMM: go mod tidy finished in 1 project.'
+        : `GMM: go mod tidy finished in ${succeeded} projects.`,
+    );
   }
 }
 
 async function scanProjects(manifests: readonly string[]): Promise<void> {
-  if (updating) {
-    return;
-  }
   const loaded = current;
   const scan = loaded?.adapter.scan;
   if (loaded === undefined || scan === undefined) {
@@ -689,50 +724,45 @@ async function scanProjects(manifests: readonly string[]): Promise<void> {
   }
 
   const token = cycle;
-  updating = true;
-  try {
-    await withBusy('Scanning reachable code…', async () => {
-      for (const manifestPath of targets) {
+  await runAction('Scanning reachable code…', async () => {
+    for (const manifestPath of targets) {
+      if (token !== cycle || current === undefined) {
+        return;
+      }
+      current = {
+        ...current,
+        model: markScan(current.model, manifestPath, {
+          status: 'running',
+          at: new Date().toISOString(),
+        }),
+      };
+      GmmPanel.update(current.model);
+
+      try {
+        const findings = await scan(manifestPath);
+        if (token !== cycle || current === undefined) {
+          return;
+        }
+        current = {
+          ...current,
+          model: applyScan(current.model, manifestPath, findings, new Date().toISOString()),
+        };
+      } catch (error) {
         if (token !== cycle || current === undefined) {
           return;
         }
         current = {
           ...current,
           model: markScan(current.model, manifestPath, {
-            status: 'running',
+            status: 'failed',
             at: new Date().toISOString(),
+            message: messageOf(error),
           }),
         };
-        GmmPanel.update(current.model);
-
-        try {
-          const findings = await scan(manifestPath);
-          if (token !== cycle || current === undefined) {
-            return;
-          }
-          current = {
-            ...current,
-            model: applyScan(current.model, manifestPath, findings, new Date().toISOString()),
-          };
-        } catch (error) {
-          if (token !== cycle || current === undefined) {
-            return;
-          }
-          current = {
-            ...current,
-            model: markScan(current.model, manifestPath, {
-              status: 'failed',
-              at: new Date().toISOString(),
-              message: messageOf(error),
-            }),
-          };
-        }
-        GmmPanel.update(current.model);
       }
-    });
-  } finally {
-    updating = false;
-  }
+      GmmPanel.update(current.model);
+    }
+  });
 }
 
 async function requestVersions(modulePath: string): Promise<void> {
@@ -784,22 +814,22 @@ async function requestPreview(
   if (preview === undefined) {
     return;
   }
-  try {
-    await withBusy('Previewing impact…', async () => {
+  await runAction('Previewing impact…', async () => {
+    try {
       GmmPanel.postPreview(
         await preview({ manifestPath, changes: [{ name, version }], snapshot: false }),
       );
-    });
-  } catch (error) {
-    GmmPanel.postPreview({
-      manifestPath,
-      name,
-      version,
-      status: 'failed',
-      impact: [],
-      message: messageOf(error),
-    });
-  }
+    } catch (error) {
+      GmmPanel.postPreview({
+        manifestPath,
+        name,
+        version,
+        status: 'failed',
+        impact: [],
+        message: messageOf(error),
+      });
+    }
+  });
 }
 
 async function fetchGitHubJson(url: string): Promise<unknown> {
@@ -822,16 +852,18 @@ async function installScannerCli(): Promise<void> {
     return;
   }
 
-  try {
-    await withBusy('Installing govulncheck…', install);
-    void vscode.window.showInformationMessage(
-      'GMM: govulncheck installed for terminal use. Scans already run the latest version through go run.',
-    );
-  } catch (error) {
-    void vscode.window.showErrorMessage(
-      `GMM: could not install govulncheck. ${messageOf(error)}`,
-    );
-  }
+  await runAction('Installing govulncheck…', async () => {
+    try {
+      await install();
+      void vscode.window.showInformationMessage(
+        'GMM: govulncheck installed for terminal use. Scans already run the latest version through go run.',
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `GMM: could not install govulncheck. ${messageOf(error)}`,
+      );
+    }
+  });
 }
 
 async function fillUpdates(
@@ -841,6 +873,8 @@ async function fillUpdates(
 ): Promise<void> {
   const resolve = loaded.adapter.resolve;
   if (!resolve) {
+    // Clear any seeded progress so the panel does not stay locked.
+    GmmPanel.update(loaded.model);
     return;
   }
 
@@ -875,6 +909,7 @@ async function fillUpdates(
 
   const attachAdvisories = loaded.adapter.advisories;
   if (attachAdvisories === undefined) {
+    GmmPanel.update(resolved);
     return;
   }
 
@@ -888,6 +923,8 @@ async function fillUpdates(
     current = { ...loaded, model: merged };
     GmmPanel.update(merged);
   } catch (error) {
+    current = { ...loaded, model: resolved };
+    GmmPanel.update(resolved);
     void vscode.window.showWarningMessage(
       `GMM: advisory lookup failed. ${messageOf(error)}`,
     );

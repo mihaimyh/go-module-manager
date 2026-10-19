@@ -682,6 +682,12 @@ tbody th.col-module .chip {
   cursor: pointer;
 }
 
+.link-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+
 .callout.reachable {
   border-color: var(--gmm-danger);
   background: color-mix(in srgb, var(--gmm-danger) 7%, transparent);

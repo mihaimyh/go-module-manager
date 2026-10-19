@@ -241,6 +241,8 @@ export function App({
   }
 
   const checking = progress !== undefined && progress.done < progress.total;
+  // Any in-flight host work (writes, confirms, scans) or update lookup locks actions.
+  const locked = busy !== undefined || checking;
   const statusLabel =
     busy ??
     (checking
@@ -345,7 +347,7 @@ export function App({
             type="button"
             className="button secondary"
             onClick={() => onTidy(targetManifests)}
-            disabled={busy !== undefined}
+            disabled={locked || targetManifests.length === 0}
             title="Run go mod tidy in the selected projects"
           >
             <TerminalIcon />
@@ -355,7 +357,7 @@ export function App({
             type="button"
             className="button primary"
             onClick={onRefresh}
-            disabled={busy !== undefined}
+            disabled={locked}
             title="Re-run the update lookup"
           >
             <RefreshIcon />
@@ -412,7 +414,7 @@ export function App({
           <button
             type="button"
             className="button primary compact"
-            disabled={busy !== undefined || updatable.length === 0}
+            disabled={locked || updatable.length === 0}
             title={
               updatable.length === 0
                 ? 'Nothing in this selection has an update'
@@ -450,7 +452,7 @@ export function App({
                 <button
                   type="button"
                   className="button secondary"
-                  disabled={busy !== undefined}
+                  disabled={locked}
                   onClick={() =>
                     onRecover(project.manifestPath, RECOVERY[failure.kind].action)
                   }
@@ -478,7 +480,7 @@ export function App({
               <button
                 type="button"
                 className="button secondary compact"
-                disabled={busy !== undefined || targetManifests.length === 0}
+                disabled={locked || targetManifests.length === 0}
                 title="Run govulncheck through go run for the selected project"
                 onClick={() => onScan(targetManifests)}
               >
@@ -487,7 +489,7 @@ export function App({
               <button
                 type="button"
                 className="link-button"
-                disabled={busy !== undefined}
+                disabled={locked}
                 title="Scans already use the latest govulncheck through go run; install it only if you also want the CLI."
                 onClick={onInstallScanner}
               >
@@ -589,7 +591,7 @@ export function App({
               row={selected}
               versions={versions[selected.name]}
               versionsPending={versionsLoading[selected.name] === true}
-              busy={busy !== undefined}
+              busy={locked}
               onVersions={onVersions}
               onUpdate={onUpdate}
               onOpenManifest={onOpenManifest}
@@ -1118,6 +1120,7 @@ function Inspector({
                 label: candidate,
               }))}
               onChange={setVersion}
+              disabled={busy}
               grow
             />
             {needsPreview && matchingPreview?.status !== 'ready' ? (
@@ -1150,6 +1153,7 @@ function Inspector({
             <input
               type="checkbox"
               checked={includePrereleases}
+              disabled={busy}
               onChange={(event) => setIncludePrereleases(event.target.checked)}
             />
             Show prereleases
@@ -1196,6 +1200,7 @@ function Inspector({
           key={advisory.id}
           advisory={advisory}
           row={row}
+          busy={busy}
           onUpdate={onUpdate}
         />
       ))}
@@ -1212,10 +1217,12 @@ function Inspector({
 function AdvisoryCard({
   advisory,
   row,
+  busy,
   onUpdate,
 }: {
   readonly advisory: Advisory;
   readonly row: DependencyRow;
+  readonly busy: boolean;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
 }): JSX.Element {
   const fix = advisoryFixOffer(advisory, row.resolvedVersion);
@@ -1249,6 +1256,7 @@ function AdvisoryCard({
             <button
               type="button"
               className="button primary compact"
+              disabled={busy}
               title={`Run go get ${row.name}@${fix.version}`}
               onClick={() => onUpdate(row.manifestPath, row.name, fix.version)}
             >
