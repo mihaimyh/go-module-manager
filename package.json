@@ -2,7 +2,7 @@
   "name": "go-module-manager",
   "displayName": "GMM — Go Module Manager",
   "description": "See and move the Go dependencies of a workspace without touching code you did not ask for.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "mihaimyh",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -31,6 +31,24 @@
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gmm",
+          "title": "Go Modules",
+          "icon": "assets/activity-bar.svg"
+        }
+      ]
+    },
+    "views": {
+      "gmm": [
+        {
+          "id": "gmm.dependencies",
+          "name": "Dependencies",
+          "type": "webview"
+        }
+      ]
+    },
     "configuration": {
       "title": "GMM",
       "properties": {
@@ -63,7 +81,14 @@
           "group": "navigation@9"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "gmm.openPanel",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

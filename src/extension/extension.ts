@@ -17,7 +17,9 @@ import { createExecGoRunner } from '../ecosystems/go/runner';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
 import { createLiveAdvisorySource, FETCH_TIMEOUT_MS } from '../ecosystems/go/advisorySource';
 import { FileAdvisoryCache } from './advisoryCache';
+import type { PanelHandlers } from './handlers';
 import { GmmPanel } from './panel';
+import { GmmViewProvider } from './view';
 
 interface LoadedModel {
   readonly adapter: EcosystemAdapter;
@@ -29,13 +31,28 @@ let refreshTimer: NodeJS.Timeout | undefined;
 let updating = false;
 let advisorySource: AdvisorySource | undefined;
 let advisorySourcePath: string | undefined;
+let handlers: PanelHandlers | undefined;
 /** Increments on every open or refresh so a stale cycle cannot paint the panel. */
 let cycle = 0;
 
 export function activate(context: vscode.ExtensionContext): void {
+  handlers = createHandlers(context);
+
+  const viewProvider = new GmmViewProvider({
+    extensionUri: context.extensionUri,
+    handlers,
+    getModel: () => current?.model,
+    ensureWorkspace: async () => {
+      await ensureWorkspace(context);
+    },
+  });
+
   context.subscriptions.push(
     vscode.commands.registerCommand('gmm.openPanel', () => openPanel(context)),
     watchManifests(context),
+    vscode.window.registerWebviewViewProvider(GmmViewProvider.viewId, viewProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('gmm.goPath') && GmmPanel.isOpen()) {
         void refresh(context, true);
@@ -44,19 +61,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
-  // Nothing to tear down: the panel and the watcher own their disposables.
-}
-
-async function openPanel(context: vscode.ExtensionContext): Promise<void> {
-  const loaded = await loadModel(context);
-  if (!loaded) {
-    return;
-  }
-
-  current = loaded;
-  const token = ++cycle;
-  GmmPanel.show(context.extensionUri, loaded.model, {
+function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
+  return {
     onRefresh: () => {
       void refresh(context, true);
     },
@@ -81,10 +87,44 @@ async function openPanel(context: vscode.ExtensionContext): Promise<void> {
     onVersions: (modulePath) => {
       void requestVersions(modulePath);
     },
-  });
+    onOpenPanel: () => {
+      void openPanel(context);
+    },
+  };
+}
 
-  // Declared rows are already on screen; versions and candidates follow.
+export function deactivate(): void {
+  // Nothing to tear down: the panel and the watcher own their disposables.
+}
+
+async function openPanel(context: vscode.ExtensionContext): Promise<void> {
+  const model = await ensureWorkspace(context);
+  if (model === undefined || handlers === undefined) {
+    return;
+  }
+  GmmPanel.show(context.extensionUri, model, handlers);
+}
+
+/**
+ * Loads the workspace once. The Activity Bar view can be the first surface to
+ * ask, so the command and the view share this path.
+ */
+async function ensureWorkspace(
+  context: vscode.ExtensionContext,
+): Promise<PanelModel | undefined> {
+  if (current !== undefined) {
+    return current.model;
+  }
+
+  const loaded = await loadModel(context);
+  if (!loaded) {
+    return undefined;
+  }
+
+  current = loaded;
+  const token = ++cycle;
   void fillUpdates(loaded, false, token);
+  return loaded.model;
 }
 
 async function refresh(context: vscode.ExtensionContext, fresh: boolean): Promise<void> {

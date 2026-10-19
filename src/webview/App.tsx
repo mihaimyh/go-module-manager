@@ -51,6 +51,7 @@ interface AppProps {
   readonly onInstallScanner: () => void;
   readonly versions: Readonly<Record<string, readonly string[]>>;
   readonly onVersions: (modulePath: string) => void;
+  readonly onOpenPanel: () => void;
 }
 
 export function App({
@@ -66,6 +67,7 @@ export function App({
   onInstallScanner,
   versions,
   onVersions,
+  onOpenPanel,
 }: AppProps): JSX.Element {
   const [tab, setTab] = useState<Tab>(() =>
     window.location.hash === '#vulnerabilities'
@@ -80,6 +82,13 @@ export function App({
   const [sort, setSort] = useState<SortState>({ key: 'module', direction: 'asc' });
   const [selectedId, setSelectedId] = useState<string>();
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  const [compact, setCompact] = useState(() => window.innerWidth < 720);
+
+  useEffect(() => {
+    const onResize = (): void => setCompact(window.innerWidth < 720);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if ((clearSignal ?? 0) > 0) {
@@ -250,6 +259,17 @@ export function App({
         </div>
 
         <div className="toolbar-actions">
+          {compact ? (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={onOpenPanel}
+              title="Open the full panel"
+            >
+              <ExternalLinkIcon />
+              Open panel
+            </button>
+          ) : null}
           <button
             type="button"
             className="button secondary"
@@ -389,16 +409,6 @@ export function App({
             </div>
           ) : null}
           <table>
-            <colgroup>
-              <col className="col-check" />
-              <col />
-              <col className="col-owning" />
-              <col className="col-version" />
-              <col className="col-version" />
-              <col className="col-update" />
-              <col className="col-type" />
-              <col className="col-actions" />
-            </colgroup>
             <thead>
               <tr>
                 <th scope="col" className="col-check">
@@ -422,7 +432,7 @@ export function App({
                   column="required"
                   sort={sort}
                   onSort={toggleSort}
-                  className="col-version"
+                  className="col-version col-required"
                 />
                 <SortHeader
                   label="Selected"
@@ -568,29 +578,31 @@ function Row({
         />
       </td>
       <th scope="row" className="col-module">
-        <span className="mono path" title={row.name}>
-          {row.name}
-        </span>
-        {row.transitive ? <span className="chip">indirect</span> : null}
-        {row.advisories.length > 0 ? (
-          <span
-            className={`chip ${
-              row.advisories.some((advisory) => advisory.reachable === true)
-                ? 'reachable'
-                : 'advisory'
-            }`}
-            title={row.advisories.map((advisory) => advisory.id).join(', ')}
-          >
-            {row.advisories.some((advisory) => advisory.reachable === true)
-              ? 'reachable'
-              : 'advisory'}
+        <div className="module-cell">
+          <span className="mono path" title={row.name}>
+            {row.name}
           </span>
-        ) : null}
+          {row.transitive ? <span className="chip">indirect</span> : null}
+          {row.advisories.length > 0 ? (
+            <span
+              className={`chip ${
+                row.advisories.some((advisory) => advisory.reachable === true)
+                  ? 'reachable'
+                  : 'advisory'
+              }`}
+              title={row.advisories.map((advisory) => advisory.id).join(', ')}
+            >
+              {row.advisories.some((advisory) => advisory.reachable === true)
+                ? 'reachable'
+                : 'advisory'}
+            </span>
+          ) : null}
+        </div>
       </th>
       <td className="col-owning mono muted" title={row.project}>
         {row.project}
       </td>
-      <td className="col-version mono muted" title={row.declaredVersion}>
+      <td className="col-version col-required mono muted" title={row.declaredVersion}>
         {row.declaredVersion}
       </td>
       <td className="col-version mono muted" title={row.resolvedVersion ?? 'not resolved yet'}>

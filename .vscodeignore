@@ -16,7 +16,7 @@ package-lock.json
 GLOSSARY.md
 AGENTS.md
 *.vsix
-dist/harness.html
+dist/harness*.html
 dist/model-entry.cjs
 **/*.map
 **/*.test.ts

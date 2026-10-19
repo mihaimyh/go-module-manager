@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.12
+
+### Added
+
+- A **Go Modules** entry in the Activity Bar, with a dedicated icon and the same dependency list in a compact layout. Selecting **Open panel** (or the shortcut) opens the full editor panel.
+- Keyboard shortcut **Ctrl+Alt+G** (**Cmd+Alt+G** on macOS) for **GMM: Open Go Module Manager**.
+- A new extension icon: an isometric Go module with an update arrow.
+
+### Changed
+
+- The Activity Bar view and the editor panel share one model and one set of actions, so updates, scans and recovery stay in sync.
 ## 0.1.11
 
 ### Added

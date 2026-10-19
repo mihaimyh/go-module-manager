@@ -80,6 +80,11 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
+  const onOpenPanel = (): void => {
+    const message: WebviewToHost = { type: 'open-panel' };
+    vscode.postMessage(message);
+  };
+
   return (
     <App
       model={state.model}
@@ -87,6 +92,7 @@ function Root(): JSX.Element {
       clearSignal={clearSignal}
       versions={state.versions ?? {}}
       onVersions={onVersions}
+      onOpenPanel={onOpenPanel}
       onRefresh={onRefresh}
       onRecover={onRecover}
       onUpdate={onUpdate}

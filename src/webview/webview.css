@@ -409,10 +409,25 @@ tbody td {
 }
 
 tbody th.col-module {
+  font-weight: 500;
+}
+
+.module-cell {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 500;
+  min-width: 0;
+}
+
+tbody th.col-module .path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+tbody th.col-module .chip {
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 
 tbody th.col-module .path {
@@ -889,4 +904,58 @@ tbody th.col-module .chip {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Compact mode: the Activity Bar view shows the list without the inspector. */
+
+@media (max-width: 720px) {
+  .toolbar {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .toolbar-left,
+  .toolbar-actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .tabs {
+    gap: 14px;
+    padding: 0 12px;
+    overflow-x: auto;
+  }
+
+  .tab.disabled {
+    display: none;
+  }
+
+  .list {
+    width: 100%;
+    border-right: 0;
+  }
+
+  .inspector {
+    display: none;
+  }
+
+  .col-check,
+  .col-owning,
+  .col-version,
+  .col-type,
+  .col-actions {
+    display: none;
+  }
+
+  .col-update {
+    width: 32%;
+  }
+
+  .toolbar .search input {
+    width: 100%;
+  }
 }
