@@ -152,7 +152,17 @@ function logGoEnvironment(goPath: string, cwd: string): void {
     return;
   }
   environmentLogged = true;
-  const keys = ['GOPROXY', 'GOSUMDB', 'GOFLAGS', 'GOPRIVATE', 'GONOPROXY', 'GOVERSION'];
+  const keys = [
+    'GOPROXY',
+    'GOSUMDB',
+    'GOFLAGS',
+    'GOPRIVATE',
+    'GONOPROXY',
+    'GOVERSION',
+    'GOMODCACHE',
+    'GOPATH',
+    'GOTOOLCHAIN',
+  ];
   void createExecGoRunner(goPath)
     .run(['env', ...keys], { cwd, env: process.env, timeoutMs: 15_000 })
     .then((result) => {
@@ -240,7 +250,7 @@ async function handleRecovery(
       return;
     }
     const confirmed = await vscode.window.showWarningMessage(
-      "GMM: delete Go's cached checksum database data? Downloaded modules are kept; the next lookup downloads the checksum data again.",
+      "GMM: delete Go's damaged checksum state? This removes the signed tree note in GOPATH\\pkg\\sumdb, the lookup cache, and any zero-filled cache metadata; downloaded modules are kept and refetched as needed.",
       { modal: true },
       'Repair',
     );

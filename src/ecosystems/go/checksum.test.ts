@@ -22,25 +22,52 @@ afterEach(() => {
   }
 });
 
-function moduleCache(): string {
+function caches(): { cache: string; goPath: string } {
   workspace = mkdtempSync(join(tmpdir(), 'gmm-sumdb-'));
-  mkdirSync(join(workspace, 'cache', 'download', 'sumdb', 'sum.golang.org'), {
+  const cache = join(workspace, 'mod');
+  const goPath = join(workspace, 'gopath');
+
+  mkdirSync(join(cache, 'cache', 'download', 'sumdb', 'sum.golang.org'), {
     recursive: true,
   });
-  mkdirSync(join(workspace, 'cache', 'download', 'rsc.io'), { recursive: true });
-  writeFileSync(join(workspace, 'cache', 'download', 'sumdb', 'sum.golang.org', 'note'), 'broken');
-  writeFileSync(join(workspace, 'cache', 'download', 'rsc.io', 'keep'), 'module');
-  return workspace;
+  mkdirSync(join(cache, 'cache', 'download', 'rsc.io'), { recursive: true });
+  writeFileSync(join(cache, 'cache', 'download', 'sumdb', 'sum.golang.org', 'note'), 'broken');
+  writeFileSync(join(cache, 'cache', 'download', 'rsc.io', 'keep'), 'module');
+
+  mkdirSync(join(cache, 'cache', 'download', 'rsc.io', 'quote', '@v'), { recursive: true });
+  writeFileSync(join(cache, 'cache', 'download', 'rsc.io', 'quote', '@v', 'v1.5.2.mod'), 'module rsc.io/quote');
+  writeFileSync(join(cache, 'cache', 'download', 'rsc.io', 'quote', '@v', 'v1.5.1.mod'), '\0\0\0\0');
+
+  mkdirSync(join(goPath, 'pkg', 'sumdb', 'sum.golang.org'), { recursive: true });
+  writeFileSync(join(goPath, 'pkg', 'sumdb', 'sum.golang.org', 'latest'), '\0\0\0');
+  writeFileSync(join(goPath, 'pkg', 'sumdb', 'sum.golang.org', 'key'), 'key');
+
+  return { cache, goPath };
 }
 
 describe('cleanChecksumCache', () => {
-  it('removes the sumdb cache and keeps downloaded modules', async () => {
-    const cache = moduleCache();
+  it('removes both sumdb caches and keeps downloaded modules', async () => {
+    const { cache, goPath } = caches();
+
+    await cleanChecksumCache(new FakeRunner(`${cache}\n${goPath}\n`));
+
+    expect(existsSync(join(cache, 'cache', 'download', 'sumdb'))).toBe(false);
+    expect(existsSync(join(goPath, 'pkg', 'sumdb'))).toBe(false);
+    expect(existsSync(join(cache, 'cache', 'download', 'rsc.io', 'keep'))).toBe(true);
+    expect(
+      existsSync(join(cache, 'cache', 'download', 'rsc.io', 'quote', '@v', 'v1.5.2.mod')),
+    ).toBe(true);
+    expect(
+      existsSync(join(cache, 'cache', 'download', 'rsc.io', 'quote', '@v', 'v1.5.1.mod')),
+    ).toBe(false);
+  });
+
+  it('still clears the lookup cache when GOPATH is not reported', async () => {
+    const { cache } = caches();
 
     await cleanChecksumCache(new FakeRunner(`${cache}\n`));
 
     expect(existsSync(join(cache, 'cache', 'download', 'sumdb'))).toBe(false);
-    expect(existsSync(join(cache, 'cache', 'download', 'rsc.io', 'keep'))).toBe(true);
   });
 
   it('fails when go env cannot report the module cache', async () => {

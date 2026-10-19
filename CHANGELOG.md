@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.14
+
+### Fixed
+
+- **Repair checksum cache** now removes the damaged signed tree note in `%GOPATH%\pkg\sumdb`, the file behind `reading tree note: malformed note`. It also removes zero-filled `.mod`/`.info`/`.ziphash` files under `GOMODCACHE`, which cause `malformed record data` and `checksum mismatch`. Before, it only cleared `GOMODCACHE\cache\download\sumdb`, so the error survived the repair.
+- The startup log includes `GOMODCACHE`, `GOPATH` and `GOTOOLCHAIN`.
 ## 0.1.13
 
 ### Added
