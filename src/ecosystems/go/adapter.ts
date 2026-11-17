@@ -20,16 +20,37 @@ export interface GoAdapterOptions {
   readonly fetchJson?: (url: string) => Promise<unknown>;
 }
 
+const FETCH_TIMEOUT_SECONDS = 15;
+
+function hostLabel(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 async function defaultFetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'go-module-manager',
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'go-module-manager',
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_SECONDS * 1_000),
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ) {
+      throw new Error(`${hostLabel(url)} timed out after ${FETCH_TIMEOUT_SECONDS}s`);
+    }
+    throw error;
+  }
   if (!response.ok) {
-    throw new Error(`${url} returned ${response.status}`);
+    throw new Error(`${hostLabel(url)} returned ${response.status}`);
   }
   return response.json();
 }
@@ -38,11 +59,14 @@ export function createGoAdapter(
   runner: GoRunner,
   options: GoAdapterOptions = {},
 ): EcosystemAdapter {
+  // Last workspace root passed to `read`, so later `go env` / `go list` use it.
+  let workspaceRoot: string | undefined;
+  const getWorkspaceRoot = (): string | undefined => workspaceRoot;
   const resolver = createProjectResolver(runner);
   const updater = createUpdater(runner);
   const source = options.advisories;
-  const versions = createVersionsFetcher({ runner });
-  const privateMatcher = createPrivateMatcher(runner);
+  const versions = createVersionsFetcher({ runner, getWorkspaceRoot });
+  const privateMatcher = createPrivateMatcher(runner, getWorkspaceRoot);
   const fetchJson = options.fetchJson ?? defaultFetchJson;
   const searcher = createModuleSearcher({
     fetchJson,
@@ -54,7 +78,10 @@ export function createGoAdapter(
     id: 'go',
     label: 'Go',
     manifestFile: 'go.mod',
-    read: (workspaceRoot) => readWorkspace(workspaceRoot, runner),
+    read: (roots) => {
+      workspaceRoot = typeof roots === 'string' ? roots : roots[0];
+      return readWorkspace(roots, runner);
+    },
     resolve: (manifestPath, resolveOptions) =>
       resolver.resolve(manifestPath, resolveOptions),
     repair: (manifestPath) => downloadModules(manifestPath, runner),

@@ -8,7 +8,10 @@ export interface PrivateMatcher {
  * Reads GOPRIVATE/GONOPROXY once per session. An unreadable configuration
  * fails closed: callers must not send module paths anywhere.
  */
-export function createPrivateMatcher(runner: GoRunner): PrivateMatcher {
+export function createPrivateMatcher(
+  runner: GoRunner,
+  getWorkspaceRoot?: () => string | undefined,
+): PrivateMatcher {
   let patterns: string[] | undefined;
 
   const load = async (): Promise<string[]> => {
@@ -16,7 +19,7 @@ export function createPrivateMatcher(runner: GoRunner): PrivateMatcher {
       return patterns;
     }
     const result = await runner.run(['env', 'GOPRIVATE', 'GONOPROXY'], {
-      cwd: process.cwd(),
+      cwd: getWorkspaceRoot?.() ?? process.cwd(),
       env: goEnv(),
       timeoutMs: 10_000,
     });

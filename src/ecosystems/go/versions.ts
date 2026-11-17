@@ -7,6 +7,7 @@ const VERSIONS_TIMEOUT_MS = 15_000;
 export interface VersionsOptions {
   readonly runner: GoRunner;
   readonly cwd?: string;
+  readonly getWorkspaceRoot?: () => string | undefined;
 }
 
 interface VersionList {
@@ -41,7 +42,7 @@ async function load(
   options: VersionsOptions,
 ): Promise<readonly string[]> {
   const result = await options.runner.run(['list', '-m', '-versions', '-json', modulePath], {
-    cwd: options.cwd ?? process.cwd(),
+    cwd: options.cwd ?? options.getWorkspaceRoot?.() ?? process.cwd(),
     env: goEnv(),
     timeoutMs: VERSIONS_TIMEOUT_MS,
   });
