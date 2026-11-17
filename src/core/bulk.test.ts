@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { planBulkUpdate, planTargetChanges, shouldRetryFailedGroup } from './bulk';
+import {
+  planBulkUpdate,
+  planTargetChanges,
+  shouldRetryFailedGroup,
+  tidyEligibleManifests,
+} from './bulk';
 import type { DependencyRow } from './model';
 
 function row(
@@ -67,6 +72,21 @@ describe('shouldRetryFailedGroup', () => {
 
   it('does not retry a group of one', () => {
     expect(shouldRetryFailedGroup(1, 'verification')).toBe(false);
+  });
+});
+
+describe('tidyEligibleManifests', () => {
+  it('excludes projects that gained a brand-new module', () => {
+    expect(
+      tidyEligibleManifests(
+        ['/repo/a/go.mod', '/repo/b/go.mod'],
+        [
+          { manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote' },
+          { manifestPath: '/repo/b/go.mod', name: 'github.com/spf13/cobra' },
+        ],
+        [{ manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote' }],
+      ),
+    ).toEqual(['/repo/a/go.mod']);
   });
 });
 

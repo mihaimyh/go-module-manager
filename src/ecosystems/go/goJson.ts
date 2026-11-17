@@ -19,6 +19,8 @@ export interface GoModJson {
     readonly Path?: string;
   };
   readonly Go?: string;
+  /** Present from Go 1.21 when a toolchain line is set. */
+  readonly Toolchain?: string;
   readonly Require?: readonly GoModRequire[];
   readonly Replace?: readonly GoModReplace[];
   readonly Exclude?: readonly unknown[];

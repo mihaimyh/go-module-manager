@@ -18,6 +18,7 @@ interface RawMessage {
   readonly modulePath?: string;
   readonly selection?: unknown;
   readonly targets?: unknown;
+  readonly skippedVisible?: unknown;
   readonly manifests?: unknown;
   readonly query?: string;
   readonly pageToken?: string;
@@ -109,9 +110,13 @@ export function handleWebviewMessage(raw: unknown, target: MessageTarget): void 
       return;
     }
     case 'bulk-update': {
-      const selection = toSelection(message.selection, model);
-      if (selection.length > 0) {
-        target.handlers.onBulkUpdate(selection);
+      const targets = toTargetChanges(message.targets, model);
+      if (targets.length > 0) {
+        const skippedVisible =
+          typeof message.skippedVisible === 'number' && message.skippedVisible > 0
+            ? message.skippedVisible
+            : undefined;
+        target.handlers.onBulkUpdate(targets, skippedVisible);
       }
       return;
     }

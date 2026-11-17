@@ -94,10 +94,22 @@ export interface EcosystemAdapter {
   cleanChecksumCache?(): Promise<void>;
   /** Moves the selected dependencies, writing only that project's manifest and lock file. */
   update?(request: UpdateRequest): Promise<UpdateResult>;
-  /** Restores the snapshot taken before the last update of that project. */
+  /** Restores the snapshot taken before the last update or tidy of that project. */
   undo?(manifestPath: string): Promise<boolean>;
-  /** Tidies one project; only ever called from its own confirmed action. */
+  /**
+   * Tidies one project; only ever called from an explicit action. Snapshots
+   * go.mod/go.sum first so Undo reverts tidy (one level).
+   */
   tidy?(manifestPath: string): Promise<void>;
+  /** True when the project already has vendor/modules.txt. */
+  isVendored?(manifestPath: string): boolean;
+  /** Rewrites vendor/ to match go.mod; never creates vendor/ from scratch. */
+  vendor?(manifestPath: string): Promise<void>;
+  /** go/toolchain directives and require lines, for collateral notices. */
+  manifestMeta?(manifestPath: string): Promise<{
+    readonly directives: { readonly go?: string; readonly toolchain?: string };
+    readonly requires: readonly { readonly name: string; readonly version: string }[];
+  }>;
   /** Attaches advisories for the resolved versions in the model. */
   advisories?(
     targets: readonly AdvisoryTarget[],

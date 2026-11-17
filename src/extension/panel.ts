@@ -103,6 +103,19 @@ export class GmmPanel {
     GmmPanel.send({ type: 'clear-selection' });
   }
 
+  static pruneSelection(
+    removeIds: readonly string[],
+    options: { readonly removeVisibleWithoutUpdate?: boolean } = {},
+  ): void {
+    GmmPanel.send({
+      type: 'prune-selection',
+      removeIds,
+      ...(options.removeVisibleWithoutUpdate === undefined
+        ? {}
+        : { removeVisibleWithoutUpdate: options.removeVisibleWithoutUpdate }),
+    });
+  }
+
   static postVersions(modulePath: string, versions: readonly string[]): void {
     GmmPanel.send({ type: 'versions', modulePath, versions });
   }

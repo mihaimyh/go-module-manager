@@ -118,6 +118,11 @@ interface AppProps {
   readonly busy?: string;
   readonly versionsLoading: Readonly<Record<string, boolean>>;
   readonly clearSignal?: number;
+  readonly pruneSignal?: {
+    readonly id: number;
+    readonly removeIds: readonly string[];
+    readonly removeVisibleWithoutUpdate?: boolean;
+  };
   readonly focus?: {
     readonly id: number;
     readonly manifestPath?: string;
@@ -127,7 +132,10 @@ interface AppProps {
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (manifestPath: string, name: string, version: string) => void;
   readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
-  readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
+  readonly onBulkUpdate: (
+    targets: readonly TargetChange[],
+    skippedVisible?: number,
+  ) => void;
   readonly onUninstall: (targets: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;
@@ -155,6 +163,7 @@ export function App({
   busy,
   versionsLoading,
   clearSignal,
+  pruneSignal,
   focus,
   onRefresh,
   onRecover,
@@ -206,6 +215,7 @@ export function App({
   const initialSearchFired = useRef(false);
   const searchTimer = useRef<number | undefined>(undefined);
   const lastFocusId = useRef<number>(0);
+  const lastPruneId = useRef<number>(0);
 
   useEffect(() => {
     const onResize = (): void => setCompact(window.innerWidth < 720);
@@ -275,7 +285,7 @@ export function App({
         onApplyTargets(action.targets);
         return;
       case 'bulk-update':
-        onBulkUpdate(action.selection);
+        onBulkUpdate(action.targets, action.skippedVisible);
         return;
       case 'clear-selection':
         setChecked(new Set());
@@ -397,6 +407,33 @@ export function App({
       (row) => needle === '' || row.name.toLowerCase().includes(needle),
     );
   }, [tabRows, query]);
+
+  useEffect(() => {
+    if (pruneSignal === undefined || pruneSignal.id === lastPruneId.current) {
+      return;
+    }
+    lastPruneId.current = pruneSignal.id;
+    const remove = new Set(pruneSignal.removeIds);
+    const clearUpToDate = pruneSignal.removeVisibleWithoutUpdate === true;
+    const visibleIds = new Set(visible.map((row) => row.id));
+    const upToDateIds = new Set(
+      rows.filter((row) => row.candidate === undefined).map((row) => row.id),
+    );
+    setChecked((current) => {
+      const next = new Set(current);
+      for (const id of remove) {
+        next.delete(id);
+      }
+      if (clearUpToDate) {
+        for (const id of [...next]) {
+          if (visibleIds.has(id) && upToDateIds.has(id)) {
+            next.delete(id);
+          }
+        }
+      }
+      return next;
+    });
+  }, [pruneSignal, rows, visible]);
 
   const sorted = useMemo(() => sortRows(visible, sort), [visible, sort]);
 
@@ -702,7 +739,12 @@ export function App({
             }
             onClick={() =>
               onBulkUpdate(
-                updatable.map((row) => ({ manifestPath: row.manifestPath, name: row.name })),
+                updatable.map((row) => ({
+                  manifestPath: row.manifestPath,
+                  name: row.name,
+                  version: row.candidate as string,
+                })),
+                Math.max(0, visibleSelected.length - updatable.length),
               )
             }
           >
@@ -928,10 +970,15 @@ export function App({
                             buildDependencyRowMenu({
                               row,
                               checkedIds: checked,
-                              updatableSelection: updatable.map((entry) => ({
+                              updatableTargets: updatable.map((entry) => ({
                                 manifestPath: entry.manifestPath,
                                 name: entry.name,
+                                version: entry.candidate as string,
                               })),
+                              skippedVisible: Math.max(
+                                0,
+                                visibleSelected.length - updatable.length,
+                              ),
                               locked,
                             }),
                             { focusFirst },
@@ -2370,7 +2417,13 @@ function Inspector({
       onVersions(row.name);
     }
     onWhy(row.manifestPath, row.name);
-  }, [row.name, row.manifestPath, row.replacement]);
+  }, [
+    row.name,
+    row.manifestPath,
+    row.replacement,
+    row.resolvedVersion,
+    row.declaredVersion,
+  ]);
 
   const known = [
     row.candidate,

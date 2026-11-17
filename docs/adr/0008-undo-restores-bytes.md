@@ -1,6 +1,8 @@
 # Undo restores bytes; it does not run the toolchain
 
-Undo writes back the `go.mod` and `go.sum` bytes captured immediately before the last update, and deletes a `go.sum` the update created. It never runs `go get` or `go mod tidy` to "undo" a version.
+Undo writes back the `go.mod` and `go.sum` bytes captured immediately before the last update **or** tidy of that project, and deletes a `go.sum` the write created. It never runs `go get` or `go mod tidy` to "undo" a version, and it never snapshots `vendor/` into memory.
+
+Each project keeps one in-memory snapshot. Tidy takes a fresh snapshot before it runs, so **Undo tidy** restores the post-update / pre-tidy state — not the pre-update state. After Undo in a project that has `vendor/modules.txt`, the UI may offer **Sync vendor** so `vendor/` can be brought back in line without buffering the tree in RAM.
 
 ADR-0001 rejects hand-editing `go.mod` because a hand-edited file can hold a graph the toolchain would never produce. Restoring a snapshot is the opposite situation: the bytes are known-good, they are the exact bytes the toolchain itself wrote moments earlier, and replaying a command to reach them would be slower, ambiguous (what is the inverse of `go get`?) and could touch unrelated requirements.
 

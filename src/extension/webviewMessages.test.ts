@@ -31,7 +31,8 @@ function createRecorder() {
       calls.push({ kind: 'recover', args: [manifestPath, action] }),
     onUpdate: (request) => calls.push({ kind: 'update', args: [request] }),
     onApplyTargets: (targets) => calls.push({ kind: 'apply-targets', args: [targets] }),
-    onBulkUpdate: (selection) => calls.push({ kind: 'bulk-update', args: [selection] }),
+    onBulkUpdate: (targets, skippedVisible) =>
+      calls.push({ kind: 'bulk-update', args: [targets, skippedVisible] }),
     onTidy: (manifests) => calls.push({ kind: 'tidy', args: [manifests] }),
     onScan: (manifests) => calls.push({ kind: 'scan', args: [manifests] }),
     onInstallScanner: () => calls.push({ kind: 'install-scanner', args: [] }),
@@ -113,6 +114,31 @@ describe('handleWebviewMessage', () => {
         kind: 'apply-targets',
         args: [
           [{ manifestPath: '/repo/a/go.mod', name: 'github.com/spf13/cobra', version: 'v1.10.2' }],
+        ],
+      },
+    ]);
+  });
+
+  it('routes versioned bulk-update targets and skips unknown manifests', () => {
+    const { calls, handlers } = createRecorder();
+    handleWebviewMessage(
+      {
+        type: 'bulk-update',
+        targets: [
+          { manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote', version: 'v1.5.2' },
+          { manifestPath: '/outside/go.mod', name: 'example.com/x', version: 'v1.0.0' },
+        ],
+        skippedVisible: 2,
+      },
+      { getModel: () => SAMPLE_MODEL, handlers, postModel: () => {} },
+    );
+
+    expect(calls).toEqual([
+      {
+        kind: 'bulk-update',
+        args: [
+          [{ manifestPath: '/repo/a/go.mod', name: 'rsc.io/quote', version: 'v1.5.2' }],
+          2,
         ],
       },
     ]);

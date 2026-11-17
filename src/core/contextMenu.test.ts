@@ -119,7 +119,9 @@ describe('buildDependencyRowMenu', () => {
     const sections = buildDependencyRowMenu({
       row,
       checkedIds: new Set([row.id, '/repo/b/go.mod#other']),
-      updatableSelection: [{ manifestPath: row.manifestPath, name: row.name }],
+      updatableTargets: [
+        { manifestPath: row.manifestPath, name: row.name, version: 'v1.10.2' },
+      ],
       locked: false,
     });
 
@@ -134,6 +136,12 @@ describe('buildDependencyRowMenu', () => {
       'Update selected (1)',
       'Clear selection',
     ]);
+    expect(sections[0]?.items[0]?.action).toEqual({
+      type: 'bulk-update',
+      targets: [
+        { manifestPath: row.manifestPath, name: row.name, version: 'v1.10.2' },
+      ],
+    });
     expect(sections[1]?.items.map((item) => item.label)).toEqual([
       'Update to v1.10.2',
       'Update to v1.9.1 (fix advisory)',
@@ -161,7 +169,7 @@ describe('buildDependencyRowMenu', () => {
     const sections = buildDependencyRowMenu({
       row,
       checkedIds: new Set(),
-      updatableSelection: [],
+      updatableTargets: [],
       locked: false,
     });
 
@@ -236,7 +244,7 @@ describe('buildBrowseRowMenu', () => {
     const lockedDepMenu = buildDependencyRowMenu({
       row: upToDateRow,
       checkedIds: new Set(),
-      updatableSelection: [],
+      updatableTargets: [],
       locked: true,
     });
     expect(lockedDepMenu[0]?.items.map((item) => ({ label: item.label, disabled: item.disabled }))).toEqual([

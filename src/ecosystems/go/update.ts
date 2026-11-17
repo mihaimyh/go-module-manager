@@ -13,12 +13,15 @@ interface Snapshot {
 
 export interface GoUpdater {
   update(request: UpdateRequest): Promise<UpdateResult>;
+  /** Captures go.mod/go.sum before tidy (or any non-update write). */
+  snapshot(manifestPath: string): void;
   undo(manifestPath: string): Promise<boolean>;
 }
 
 /**
  * Runs one `go get` per project for the whole group, keeping exactly one
- * snapshot per project, taken before that write. Undo is session-only.
+ * snapshot per project, taken before that write. Tidy reuses the same map so
+ * Undo stays one level. Undo is session-only.
  */
 export function createUpdater(runner: GoRunner): GoUpdater {
   const snapshots = new Map<string, Snapshot>();
@@ -52,6 +55,10 @@ export function createUpdater(runner: GoRunner): GoUpdater {
         changes: request.changes,
         status: 'updated',
       };
+    },
+
+    snapshot(manifestPath) {
+      snapshots.set(manifestPath, snapshotOf(manifestPath));
     },
 
     async undo(manifestPath) {

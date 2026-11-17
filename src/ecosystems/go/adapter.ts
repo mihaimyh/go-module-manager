@@ -11,7 +11,9 @@ import { tidyProject } from './tidy';
 import { previewUpdate } from './preview';
 import { createPrivateMatcher } from './private';
 import { createModuleSearcher, fetchModuleMetadata } from './search';
+import { readManifestMeta } from './manifestMeta';
 import { createUpdater } from './update';
+import { isVendored, vendorProject } from './vendor';
 import { createVersionsFetcher } from './versions';
 import { whyModule } from './why';
 
@@ -88,7 +90,13 @@ export function createGoAdapter(
     cleanChecksumCache: () => cleanChecksumCache(runner),
     update: (request) => updater.update(request),
     undo: (manifestPath) => updater.undo(manifestPath),
-    tidy: (manifestPath) => tidyProject(manifestPath, runner),
+    tidy: async (manifestPath) => {
+      updater.snapshot(manifestPath);
+      await tidyProject(manifestPath, runner);
+    },
+    isVendored: (manifestPath) => isVendored(manifestPath),
+    vendor: (manifestPath) => vendorProject(manifestPath, runner),
+    manifestMeta: (manifestPath) => readManifestMeta(manifestPath, runner),
     scan: (manifestPath) => scanProject(manifestPath, runner),
     installScanner: () => installScanner(process.cwd(), runner),
     versions: (modulePath) => versions.fetch(modulePath),

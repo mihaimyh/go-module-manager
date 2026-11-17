@@ -7,7 +7,10 @@ export interface PanelHandlers {
   readonly onRecover: (manifestPath: string, action: RecoveryAction) => void;
   readonly onUpdate: (request: UpdateRequest) => void;
   readonly onApplyTargets: (targets: readonly TargetChange[]) => void;
-  readonly onBulkUpdate: (selection: readonly DependencySelection[]) => void;
+  readonly onBulkUpdate: (
+    targets: readonly TargetChange[],
+    skippedVisible?: number,
+  ) => void;
   readonly onUninstall: (targets: readonly DependencySelection[]) => void;
   readonly onTidy: (manifests: readonly string[]) => void;
   readonly onScan: (manifests: readonly string[]) => void;

@@ -2,6 +2,8 @@ import type { ModuleMetadata, PreviewResult, SearchResponse } from './adapter';
 import type { TargetChange } from './bulk';
 import type { PanelModel } from './model';
 
+export type { TargetChange };
+
 export interface ReleaseNotes {
   readonly title: string;
   readonly body: string;
@@ -22,6 +24,13 @@ export type HostToWebview =
       readonly progress?: ResolveProgress;
     }
   | { readonly type: 'clear-selection' }
+  | {
+      readonly type: 'prune-selection';
+      /** Row ids (manifestPath#name) to uncheck after a successful write. */
+      readonly removeIds: readonly string[];
+      /** Also drop visible checked rows that had no update candidate. */
+      readonly removeVisibleWithoutUpdate?: boolean;
+    }
   | { readonly type: 'busy'; readonly label?: string }
   | { readonly type: 'versions-loading'; readonly modulePath: string }
   | {
@@ -96,8 +105,11 @@ export type WebviewToHost =
       readonly targets: readonly TargetChange[];
     }
   | {
+      /** Versioned targets planned in the webview (respects Include prerelease). */
       readonly type: 'bulk-update';
-      readonly selection: readonly DependencySelection[];
+      readonly targets: readonly TargetChange[];
+      /** Visible checked rows with no candidate, for the confirmation copy. */
+      readonly skippedVisible?: number;
     }
   | {
       readonly type: 'uninstall';

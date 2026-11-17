@@ -27,11 +27,17 @@ import {
 import { failureKindFor } from '../ecosystems/go/errors';
 import { requiredModuleAtLine, requireLineNumber } from '../ecosystems/go/requireLine';
 import {
-  planBulkUpdate,
   planTargetChanges,
   shouldRetryFailedGroup,
+  tidyEligibleManifests,
   type TargetChange,
 } from '../core/bulk';
+import {
+  diffManifestCollateral,
+  formatDirectiveNotice,
+  type DirectiveChange,
+  type ManifestCollateral,
+} from '../core/collateral';
 import { removeSafety } from '../core/version';
 import { workspaceRoots } from '../core/workspaceRoots';
 import type { AdvisorySource } from '../ecosystems/go/advisory';
@@ -50,6 +56,8 @@ interface LoadedModel {
 let current: LoadedModel | undefined;
 let refreshTimer: NodeJS.Timeout | undefined;
 let updating = false;
+/** True while a write-driven refresh+resolve owns the panel (blocks watcher echoes). */
+let writeRefreshPending = false;
 let advisorySource: AdvisorySource | undefined;
 let advisorySourcePath: string | undefined;
 let handlers: PanelHandlers | undefined;
@@ -112,8 +120,8 @@ function createHandlers(context: vscode.ExtensionContext): PanelHandlers {
     onApplyTargets: (targets) => {
       void applyTargets(context, targets);
     },
-    onBulkUpdate: (selection) => {
-      void bulkUpdate(context, selection);
+    onBulkUpdate: (targets, skippedVisible) => {
+      void bulkUpdate(context, targets, skippedVisible);
     },
     onUninstall: (targets) => {
       void uninstallDependencies(context, targets);
@@ -368,14 +376,17 @@ async function refreshFromUser(context: vscode.ExtensionContext): Promise<void> 
 
 /**
  * Reloads the panel model. Watcher/config refreshes are skipped while a write
- * is in flight (`updating`); callers that just finished a write pass
- * `force: true` so the panel reflects the new go.mod.
+ * is in flight (`updating`) or a write-driven resolve is still running.
+ * Callers that just finished a write pass `force: true` and await resolve.
  */
 async function refresh(
   context: vscode.ExtensionContext,
   fresh: boolean,
-  options: { readonly force?: boolean } = {},
+  options: { readonly force?: boolean; readonly fromWatcher?: boolean } = {},
 ): Promise<void> {
+  if (options.fromWatcher === true && (updating || writeRefreshPending)) {
+    return;
+  }
   if (updating && options.force !== true) {
     return;
   }
@@ -393,6 +404,15 @@ async function refresh(
     done: 0,
     total: loaded.model.projects.length,
   });
+  if (options.force === true) {
+    writeRefreshPending = true;
+    try {
+      await fillUpdates(loaded, fresh, token);
+    } finally {
+      writeRefreshPending = false;
+    }
+    return;
+  }
   void fillUpdates(loaded, fresh, token);
 }
 
@@ -489,23 +509,38 @@ function openToolchainPage(adapter: EcosystemAdapter): void {
   void vscode.env.openExternal(vscode.Uri.parse(adapter.toolchainUrl));
 }
 
+interface GroupRunOutcome {
+  readonly results: readonly UpdateResult[];
+  readonly collateral: readonly {
+    readonly manifestPath: string;
+    readonly diff: ManifestCollateral;
+  }[];
+}
+
 /**
  * One `go get` per group, sequentially; a failing group is recorded and the
- * others continue. Afterwards the workspace is re-read and failed groups are
- * marked on their rows.
+ * others continue. Afterwards the workspace is re-read (awaiting resolve) and
+ * failed groups are marked on their rows.
  */
 async function runGroups(
   context: vscode.ExtensionContext,
   adapter: EcosystemAdapter,
   groups: readonly UpdateRequest[],
-): Promise<readonly UpdateResult[]> {
+): Promise<GroupRunOutcome> {
   const update = adapter.update;
   const results: UpdateResult[] = [];
+  const collateral: { manifestPath: string; diff: ManifestCollateral }[] = [];
   if (update === undefined) {
-    return results;
+    return { results, collateral };
   }
 
   for (const group of groups) {
+    const selectedNames = new Set(group.changes.map((change) => change.name));
+    const beforeMeta =
+      adapter.manifestMeta === undefined
+        ? undefined
+        : await adapter.manifestMeta(group.manifestPath).catch(() => undefined);
+
     let result: UpdateResult;
     output?.appendLine(
       `update ${group.manifestPath}: ${group.changes
@@ -551,6 +586,23 @@ async function runGroups(
     } else {
       results.push(result);
     }
+
+    const groupSucceeded = results.some(
+      (entry) =>
+        entry.manifestPath === group.manifestPath && entry.status === 'updated',
+    );
+    if (groupSucceeded && beforeMeta !== undefined && adapter.manifestMeta !== undefined) {
+      try {
+        const afterMeta = await adapter.manifestMeta(group.manifestPath);
+        const diff = diffManifestCollateral(beforeMeta, afterMeta, selectedNames);
+        if (diff.directives.length > 0 || diff.unselectedRequires.length > 0) {
+          collateral.push({ manifestPath: group.manifestPath, diff });
+          logCollateral(group.manifestPath, diff);
+        }
+      } catch {
+        // Collateral is best-effort; the write already finished.
+      }
+    }
   }
 
   for (const result of results) {
@@ -580,7 +632,141 @@ async function runGroups(
     GmmPanel.update(model);
   }
 
-  return results;
+  return { results, collateral };
+}
+
+function logCollateral(manifestPath: string, diff: ManifestCollateral): void {
+  for (const change of diff.directives) {
+    output?.appendLine(
+      `collateral ${manifestPath}: ${change.field} ${change.from ?? '(none)'} → ${change.to ?? '(none)'}`,
+    );
+  }
+  for (const change of diff.unselectedRequires) {
+    output?.appendLine(
+      `collateral ${manifestPath}: ${change.kind} ${change.name} ${change.from ?? ''} → ${change.to ?? ''}`.trim(),
+    );
+  }
+}
+
+function collectDirectiveChanges(
+  collateral: readonly { readonly diff: ManifestCollateral }[],
+): DirectiveChange[] {
+  const seen = new Set<string>();
+  const changes: DirectiveChange[] = [];
+  for (const entry of collateral) {
+    for (const change of entry.diff.directives) {
+      const key = `${change.field}:${change.from ?? ''}:${change.to ?? ''}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      changes.push(change);
+    }
+  }
+  return changes;
+}
+
+function vendoredManifests(
+  adapter: EcosystemAdapter,
+  manifests: readonly string[],
+): string[] {
+  const check = adapter.isVendored;
+  if (check === undefined) {
+    return [];
+  }
+  return [...new Set(manifests)].filter((manifestPath) => check(manifestPath));
+}
+
+interface WriteFollowUpOptions {
+  readonly context: vscode.ExtensionContext;
+  readonly adapter: EcosystemAdapter;
+  readonly message: string;
+  readonly succeededManifests: readonly string[];
+  readonly written: readonly { readonly manifestPath: string; readonly name: string }[];
+  readonly declaredBefore: readonly { readonly manifestPath: string; readonly name: string }[];
+  readonly collateral?: readonly { readonly diff: ManifestCollateral }[];
+  readonly pruneSelection?: boolean;
+  readonly undoLabel?: string;
+}
+
+/**
+ * One completion toast: Undo → Run go mod tidy → Sync vendor, with go/toolchain
+ * bumps in the body. Tidy is skipped for projects that gained a new module.
+ */
+async function offerWriteFollowUp(options: WriteFollowUpOptions): Promise<void> {
+  const {
+    context,
+    adapter,
+    succeededManifests,
+    written,
+    declaredBefore,
+    pruneSelection = false,
+    undoLabel = 'Undo',
+  } = options;
+
+  if (succeededManifests.length === 0) {
+    return;
+  }
+
+  if (pruneSelection) {
+    const succeeded = new Set(succeededManifests);
+    const removeIds = written
+      .filter((entry) => succeeded.has(entry.manifestPath))
+      .map((entry) => `${entry.manifestPath}#${entry.name}`);
+    GmmPanel.pruneSelection(removeIds, { removeVisibleWithoutUpdate: true });
+  }
+
+  const tidyTargets = tidyEligibleManifests(
+    succeededManifests,
+    written,
+    declaredBefore,
+  );
+  const vendorTargets = vendoredManifests(adapter, succeededManifests);
+  const directiveNotice = formatDirectiveNotice(
+    collectDirectiveChanges(options.collateral ?? []),
+  );
+  const body =
+    directiveNotice === undefined
+      ? options.message
+      : `${options.message} (${directiveNotice})`;
+
+  const actions: string[] = [undoLabel];
+  if (tidyTargets.length > 0 && adapter.tidy !== undefined) {
+    actions.push('Run go mod tidy');
+  }
+  if (vendorTargets.length > 0 && adapter.vendor !== undefined) {
+    actions.push(
+      vendorTargets.length === 1 ? 'Sync vendor' : `Sync vendor (${vendorTargets.length})`,
+    );
+  }
+
+  const choice = await vscode.window.showInformationMessage(body, ...actions);
+  if (choice === undoLabel) {
+    await runAction(undoLabel === 'Undo tidy' ? 'Undoing tidy…' : 'Undoing…', async () => {
+      await undoResults(adapter, succeededManifests);
+      await refresh(context, false, { force: true });
+      const stillVendored = vendoredManifests(adapter, succeededManifests);
+      if (stillVendored.length > 0 && adapter.vendor !== undefined) {
+        const sync = await vscode.window.showInformationMessage(
+          'GMM: go.mod restored. Sync vendor/ to match?',
+          stillVendored.length === 1
+            ? 'Sync vendor'
+            : `Sync vendor (${stillVendored.length})`,
+        );
+        if (sync !== undefined) {
+          await vendorProjects(adapter, stillVendored, { fromUndo: true });
+        }
+      }
+    });
+    return;
+  }
+  if (choice === 'Run go mod tidy') {
+    await tidyProjects(context, [...tidyTargets], { fromFollowUp: true });
+    return;
+  }
+  if (choice !== undefined && choice.startsWith('Sync vendor')) {
+    await vendorProjects(adapter, vendorTargets);
+  }
 }
 
 async function undoResults(
@@ -620,15 +806,19 @@ async function updateDependency(
   const change = request.changes[0];
   const removing = change?.version === 'none';
   const busyLabel = removing ? 'Removing dependency…' : 'Updating dependencies…';
+  const declaredBefore = loaded.model.rows.map((row) => ({
+    manifestPath: row.manifestPath,
+    name: row.name,
+  }));
 
-  const results = await runAction(busyLabel, () =>
+  const outcome = await runAction(busyLabel, () =>
     runGroups(context, loaded.adapter, [request]),
   );
-  if (results === undefined) {
+  if (outcome === undefined) {
     return;
   }
 
-  const result = results[0];
+  const result = outcome.results[0];
   if (result === undefined || change === undefined) {
     return;
   }
@@ -659,13 +849,15 @@ async function updateDependency(
       ? `GMM: ${change.name} updated`
       : `GMM: ${change.name} resolved to ${resolved}`;
 
-  const choice = await vscode.window.showInformationMessage(toastMessage, 'Undo');
-  if (choice === 'Undo') {
-    await runAction('Undoing…', async () => {
-      await undoResults(loaded.adapter, [request.manifestPath]);
-      await refresh(context, false, { force: true });
-    });
-  }
+  await offerWriteFollowUp({
+    context,
+    adapter: loaded.adapter,
+    message: toastMessage,
+    succeededManifests: [request.manifestPath],
+    written: [{ manifestPath: request.manifestPath, name: change.name }],
+    declaredBefore,
+    collateral: outcome.collateral,
+  });
 }
 
 async function applyTargets(
@@ -687,6 +879,10 @@ async function applyTargets(
   }
 
   const removingAll = targets.every((target) => target.version === 'none');
+  const declaredBefore = loaded.model.rows.map((row) => ({
+    manifestPath: row.manifestPath,
+    name: row.name,
+  }));
   const outcome = await runAction(
     removingAll ? 'Removing dependencies…' : 'Updating dependencies…',
     () => runGroups(context, loaded.adapter, groups),
@@ -695,12 +891,12 @@ async function applyTargets(
     return;
   }
 
-  const failed = outcome.filter((result) => result.status === 'failed');
-  const succeeded = outcome.filter((result) => result.status === 'updated');
+  const failed = outcome.results.filter((result) => result.status === 'failed');
+  const succeeded = outcome.results.filter((result) => result.status === 'updated');
 
   if (failed.length > 0) {
     showUpdateFailure(
-      `GMM: ${failed.length} of ${outcome.length} project updates failed.`,
+      `GMM: ${failed.length} of ${outcome.results.length} project updates failed.`,
       failed[0]?.message ?? '',
     );
   }
@@ -709,37 +905,35 @@ async function applyTargets(
   }
 
   const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
-  const choice = await vscode.window.showInformationMessage(
-    removingAll
+  await offerWriteFollowUp({
+    context,
+    adapter: loaded.adapter,
+    message: removingAll
       ? `GMM: removed from ${projectCount} project(s).`
       : `GMM: updated in ${projectCount} project(s).`,
-    'Undo',
-  );
-  if (choice === 'Undo') {
-    await runAction('Undoing…', async () => {
-      await undoResults(loaded.adapter, [
-        ...new Set(succeeded.map((result) => result.manifestPath)),
-      ]);
-      await refresh(context, false, { force: true });
-    });
-  }
+    succeededManifests: [...new Set(succeeded.map((result) => result.manifestPath))],
+    written: succeeded.flatMap((result) =>
+      result.changes.map((change) => ({
+        manifestPath: result.manifestPath,
+        name: change.name,
+      })),
+    ),
+    declaredBefore,
+    collateral: outcome.collateral,
+  });
 }
 
 async function bulkUpdate(
   context: vscode.ExtensionContext,
-  selection: readonly DependencySelection[],
+  targets: readonly TargetChange[],
+  skippedVisible = 0,
 ): Promise<void> {
   const loaded = current;
   if (loaded === undefined || loaded.adapter.update === undefined) {
     return;
   }
 
-  const rows = loaded.model.rows.filter((row) =>
-    selection.some(
-      (entry) => entry.manifestPath === row.manifestPath && entry.name === row.name,
-    ),
-  );
-  const groups = planBulkUpdate(rows);
+  const groups = planTargetChanges(targets);
   if (groups.length === 0) {
     void vscode.window.showInformationMessage(
       'GMM: nothing in that selection has an update to move to.',
@@ -747,12 +941,17 @@ async function bulkUpdate(
     return;
   }
 
+  const declaredBefore = loaded.model.rows.map((row) => ({
+    manifestPath: row.manifestPath,
+    name: row.name,
+  }));
   const outcome = await runAction('Confirming update…', async () => {
     const planned = groups.reduce((total, group) => total + group.changes.length, 0);
-    const skipped = Math.max(0, selection.length - planned);
     const confirmed = await vscode.window.showWarningMessage(
       `Update ${planned} dependencies in ${groups.length} go.mod file(s)?${
-        skipped > 0 ? `\n${skipped} selected rows have no update and will be skipped.` : ''
+        skippedVisible > 0
+          ? `\n${skippedVisible} selected rows have no update and will be skipped.`
+          : ''
       }\n${groups.map((group) => group.manifestPath).join('\n')}`,
       { modal: true },
       'Update',
@@ -768,12 +967,12 @@ async function bulkUpdate(
     return;
   }
 
-  const failed = outcome.filter((result) => result.status === 'failed');
-  const succeeded = outcome.filter((result) => result.status === 'updated');
+  const failed = outcome.results.filter((result) => result.status === 'failed');
+  const succeeded = outcome.results.filter((result) => result.status === 'updated');
 
   if (failed.length > 0) {
     showUpdateFailure(
-      `GMM: ${failed.length} of ${outcome.length} dependency updates failed.`,
+      `GMM: ${failed.length} of ${outcome.results.length} dependency updates failed.`,
       failed[0]?.message ?? '',
     );
   }
@@ -781,26 +980,29 @@ async function bulkUpdate(
     return;
   }
 
-  GmmPanel.clearSelection();
   const moved = succeeded.reduce((total, result) => total + result.changes.length, 0);
   const projectCount = new Set(succeeded.map((result) => result.manifestPath)).size;
-  const choice = await vscode.window.showInformationMessage(
-    `GMM: ${moved} dependencies updated in ${projectCount} project(s).`,
-    'Undo',
-  );
-  if (choice === 'Undo') {
-    await runAction('Undoing…', async () => {
-      await undoResults(loaded.adapter, [
-        ...new Set(succeeded.map((result) => result.manifestPath)),
-      ]);
-      await refresh(context, false, { force: true });
-    });
-  }
+  await offerWriteFollowUp({
+    context,
+    adapter: loaded.adapter,
+    message: `GMM: ${moved} dependencies updated in ${projectCount} project(s).`,
+    succeededManifests: [...new Set(succeeded.map((result) => result.manifestPath))],
+    written: succeeded.flatMap((result) =>
+      result.changes.map((change) => ({
+        manifestPath: result.manifestPath,
+        name: change.name,
+      })),
+    ),
+    declaredBefore,
+    collateral: outcome.collateral,
+    pruneSelection: true,
+  });
 }
 
 async function tidyProjects(
   context: vscode.ExtensionContext,
   manifests: readonly string[],
+  options: { readonly fromFollowUp?: boolean } = {},
 ): Promise<void> {
   const loaded = current;
   if (loaded === undefined) {
@@ -821,38 +1023,112 @@ async function tidyProjects(
     return;
   }
 
-  const succeeded = await runAction('Confirming go mod tidy…', async () => {
-    const confirmed = await vscode.window.showWarningMessage(
-      `Run go mod tidy in ${targets.length} project(s)? This removes requirements nothing imports yet.\n${targets.join(
-        '\n',
-      )}`,
-      { modal: true },
-      'Run tidy',
-    );
-    if (confirmed !== 'Run tidy') {
-      return 0;
-    }
+  const succeededManifests = await runAction(
+    options.fromFollowUp === true ? 'Running go mod tidy…' : 'Confirming go mod tidy…',
+    async () => {
+      if (options.fromFollowUp !== true) {
+        const confirmed = await vscode.window.showWarningMessage(
+          `Run go mod tidy in ${targets.length} project(s)? This removes requirements nothing imports yet.\n${targets.join(
+            '\n',
+          )}`,
+          { modal: true },
+          'Run tidy',
+        );
+        if (confirmed !== 'Run tidy') {
+          return [];
+        }
+        setBusy('Running go mod tidy…');
+      }
 
-    setBusy('Running go mod tidy…');
+      const ok: string[] = [];
+      for (const manifestPath of targets) {
+        try {
+          await tidy(manifestPath);
+          ok.push(manifestPath);
+        } catch (error) {
+          showFailure(manifestPath, error);
+        }
+      }
+      await refresh(context, false, { force: true });
+      return ok;
+    },
+  );
+  if (succeededManifests === undefined || succeededManifests.length === 0) {
+    return;
+  }
+
+  const vendorTargets = vendoredManifests(loaded.adapter, succeededManifests);
+  const message =
+    succeededManifests.length === 1
+      ? 'GMM: go mod tidy finished in 1 project.'
+      : `GMM: go mod tidy finished in ${succeededManifests.length} projects.`;
+  const actions: string[] = ['Undo tidy'];
+  if (vendorTargets.length > 0 && loaded.adapter.vendor !== undefined) {
+    actions.push(
+      vendorTargets.length === 1 ? 'Sync vendor' : `Sync vendor (${vendorTargets.length})`,
+    );
+  }
+  const choice = await vscode.window.showInformationMessage(message, ...actions);
+  if (choice === 'Undo tidy') {
+    await runAction('Undoing tidy…', async () => {
+      await undoResults(loaded.adapter, succeededManifests);
+      await refresh(context, false, { force: true });
+      const stillVendored = vendoredManifests(loaded.adapter, succeededManifests);
+      if (stillVendored.length > 0 && loaded.adapter.vendor !== undefined) {
+        const sync = await vscode.window.showInformationMessage(
+          'GMM: go.mod restored. Sync vendor/ to match?',
+          stillVendored.length === 1
+            ? 'Sync vendor'
+            : `Sync vendor (${stillVendored.length})`,
+        );
+        if (sync !== undefined) {
+          await vendorProjects(loaded.adapter, stillVendored, { fromUndo: true });
+        }
+      }
+    });
+    return;
+  }
+  if (choice !== undefined && choice.startsWith('Sync vendor')) {
+    await vendorProjects(loaded.adapter, vendorTargets);
+  }
+}
+
+async function vendorProjects(
+  adapter: EcosystemAdapter,
+  manifests: readonly string[],
+  options: { readonly fromUndo?: boolean } = {},
+): Promise<void> {
+  const vendor = adapter.vendor;
+  if (vendor === undefined) {
+    return;
+  }
+  const targets = vendoredManifests(adapter, manifests);
+  if (targets.length === 0) {
+    void vscode.window.showInformationMessage(
+      'GMM: none of those projects have vendor/modules.txt.',
+    );
+    return;
+  }
+
+  await runAction('Syncing vendor…', async () => {
     let count = 0;
     for (const manifestPath of targets) {
       try {
-        await tidy(manifestPath);
+        await vendor(manifestPath);
         count += 1;
       } catch (error) {
         showFailure(manifestPath, error);
       }
     }
-    await refresh(context, false, { force: true });
-    return count;
+    if (count > 0) {
+      void vscode.window.showInformationMessage(
+        options.fromUndo === true
+          ? `GMM: vendor synced in ${count} project(s) after undo.`
+          : `GMM: vendor synced in ${count} project(s).`,
+      );
+    }
+    // vendor/ is not watched as go.mod; no model refresh required.
   });
-  if (succeeded !== undefined && succeeded > 0) {
-    void vscode.window.showInformationMessage(
-      succeeded === 1
-        ? 'GMM: go mod tidy finished in 1 project.'
-        : `GMM: go mod tidy finished in ${succeeded} projects.`,
-    );
-  }
 }
 
 async function scanProjects(manifests: readonly string[]): Promise<void> {
@@ -1222,7 +1498,7 @@ function watchManifests(context: vscode.ExtensionContext): vscode.Disposable {
     }
     refreshTimer = setTimeout(() => {
       refreshTimer = undefined;
-      void refresh(context, false);
+      void refresh(context, false, { fromWatcher: true });
     }, 400);
   };
 
@@ -1296,6 +1572,10 @@ async function uninstallDependencies(
     return;
   }
 
+  const declaredBefore = loaded.model.rows.map((row) => ({
+    manifestPath: row.manifestPath,
+    name: row.name,
+  }));
   const outcome = await runAction('Checking uninstall impact…', async () => {
     const warnings: string[] = [];
     let needsConfirm = false;
@@ -1384,14 +1664,14 @@ async function uninstallDependencies(
     return;
   }
 
-  const failed = outcome.filter((result) => result.status === 'failed');
-  const succeeded = outcome.filter((result) => result.status === 'updated');
+  const failed = outcome.results.filter((result) => result.status === 'failed');
+  const succeeded = outcome.results.filter((result) => result.status === 'updated');
 
   if (failed.length > 0) {
     showUpdateFailure(
       selection.length === 1 && selection[0] !== undefined
         ? `GMM: ${selection[0].name} could not be removed.`
-        : `GMM: ${failed.length} of ${outcome.length} removals failed.`,
+        : `GMM: ${failed.length} of ${outcome.results.length} removals failed.`,
       failed[0]?.message ?? '',
     );
   }
@@ -1404,15 +1684,20 @@ async function uninstallDependencies(
     selection.length === 1 && selection[0] !== undefined
       ? `GMM: ${selection[0].name} removed`
       : `GMM: removed from ${projectCount} project(s).`;
-  const choice = await vscode.window.showInformationMessage(toastMessage, 'Undo');
-  if (choice === 'Undo') {
-    await runAction('Undoing…', async () => {
-      await undoResults(loaded.adapter, [
-        ...new Set(succeeded.map((result) => result.manifestPath)),
-      ]);
-      await refresh(context, false, { force: true });
-    });
-  }
+  await offerWriteFollowUp({
+    context,
+    adapter: loaded.adapter,
+    message: toastMessage,
+    succeededManifests: [...new Set(succeeded.map((result) => result.manifestPath))],
+    written: succeeded.flatMap((result) =>
+      result.changes.map((change) => ({
+        manifestPath: result.manifestPath,
+        name: change.name,
+      })),
+    ),
+    declaredBefore,
+    collateral: outcome.collateral,
+  });
 }
 
 async function openManifest(manifestPath: string, name?: string): Promise<void> {

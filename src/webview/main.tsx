@@ -42,6 +42,11 @@ interface ViewState {
 function Root(): JSX.Element {
   const [state, setState] = useState<ViewState>({});
   const [clearSignal, setClearSignal] = useState(0);
+  const [pruneSignal, setPruneSignal] = useState<{
+    readonly id: number;
+    readonly removeIds: readonly string[];
+    readonly removeVisibleWithoutUpdate?: boolean;
+  }>();
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>): void => {
@@ -52,6 +57,15 @@ function Root(): JSX.Element {
       }
       if (message.type === 'clear-selection') {
         setClearSignal((current) => current + 1);
+      }
+      if (message.type === 'prune-selection') {
+        setPruneSignal((current) => ({
+          id: (current?.id ?? 0) + 1,
+          removeIds: message.removeIds,
+          ...(message.removeVisibleWithoutUpdate === undefined
+            ? {}
+            : { removeVisibleWithoutUpdate: message.removeVisibleWithoutUpdate }),
+        }));
       }
       if (message.type === 'busy') {
         setState((current) => ({ ...current, busy: message.label }));
@@ -163,8 +177,15 @@ function Root(): JSX.Element {
     vscode.postMessage(message);
   };
 
-  const onBulkUpdate = (selection: readonly DependencySelection[]): void => {
-    const message: WebviewToHost = { type: 'bulk-update', selection };
+  const onBulkUpdate = (
+    targets: readonly TargetChange[],
+    skippedVisible?: number,
+  ): void => {
+    const message: WebviewToHost = {
+      type: 'bulk-update',
+      targets,
+      ...(skippedVisible === undefined ? {} : { skippedVisible }),
+    };
     vscode.postMessage(message);
   };
 
@@ -252,6 +273,7 @@ function Root(): JSX.Element {
       busy={state.busy}
       versionsLoading={state.versionsLoading ?? {}}
       clearSignal={clearSignal}
+      pruneSignal={pruneSignal}
       focus={state.focus}
       versions={state.versions ?? {}}
       onVersions={onVersions}

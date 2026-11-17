@@ -328,6 +328,7 @@ export function mergeResolution(
       }
 
       const selected = selectCandidate(entry, options.includePrereleases === true);
+      const replacement = entry.replacement ?? row.replacement;
 
       return {
         id: row.id,
@@ -341,8 +342,14 @@ export function mergeResolution(
         ...(selected.prereleaseCandidate === undefined
           ? {}
           : { prereleaseCandidate: selected.prereleaseCandidate }),
+        ...(replacement === undefined ? {} : { replacement }),
         kind: selected.kind,
         advisories: row.advisories,
+        // Survives resolve patches; cleared only on a full assemblePanelModel re-read.
+        ...(row.failure === undefined ? {} : { failure: row.failure }),
+        ...(row.advisoryUnchecked === undefined
+          ? {}
+          : { advisoryUnchecked: row.advisoryUnchecked }),
       };
     }),
   };

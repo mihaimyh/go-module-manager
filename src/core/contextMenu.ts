@@ -37,7 +37,11 @@ export type ContextMenuAction =
       readonly version: string;
     }
   | { readonly type: 'apply-targets'; readonly targets: readonly TargetChange[] }
-  | { readonly type: 'bulk-update'; readonly selection: readonly DependencySelection[] }
+  | {
+      readonly type: 'bulk-update';
+      readonly targets: readonly TargetChange[];
+      readonly skippedVisible?: number;
+    }
   | { readonly type: 'clear-selection' }
   | {
       readonly type: 'uninstall';
@@ -123,12 +127,14 @@ export function clampMenuPosition(
 export function buildDependencyRowMenu({
   row,
   checkedIds,
-  updatableSelection,
+  updatableTargets,
+  skippedVisible,
   locked,
 }: {
   readonly row: DependencyRow;
   readonly checkedIds: ReadonlySet<string>;
-  readonly updatableSelection: readonly DependencySelection[];
+  readonly updatableTargets: readonly TargetChange[];
+  readonly skippedVisible?: number;
   readonly locked: boolean;
 }): readonly ContextMenuSection[] {
   const sections: ContextMenuSection[] = [];
@@ -139,9 +145,15 @@ export function buildDependencyRowMenu({
       items: [
         {
           id: 'bulk-update',
-          label: `Update selected (${updatableSelection.length})`,
-          disabled: locked || updatableSelection.length === 0,
-          action: { type: 'bulk-update', selection: updatableSelection },
+          label: `Update selected (${updatableTargets.length})`,
+          disabled: locked || updatableTargets.length === 0,
+          action: {
+            type: 'bulk-update',
+            targets: updatableTargets,
+            ...(skippedVisible === undefined || skippedVisible <= 0
+              ? {}
+              : { skippedVisible }),
+          },
         },
         {
           id: 'clear-selection',

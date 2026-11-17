@@ -142,6 +142,18 @@ describe('updating dependencies', () => {
     expect(readFileSync(manifestPath, 'utf8')).toBe(BEFORE);
   });
 
+  it('lets tidy snapshot through the shared undo map', async () => {
+    const manifestPath = module('rsc.io/quote v1.5.1 h1:old=\n');
+    const updater = createUpdater(
+      new FakeRunner(() => ({ stdout: '', stderr: '', exitCode: 0 })),
+    );
+
+    updater.snapshot(manifestPath);
+    writeFileSync(manifestPath, AFTER);
+    expect(await updater.undo(manifestPath)).toBe(true);
+    expect(readFileSync(manifestPath, 'utf8')).toBe(BEFORE);
+  });
+
   it('keeps the first snapshot across fallback retries', async () => {
     const manifestPath = module('rsc.io/quote v1.5.1 h1:old=\n');
     const runner = new FakeRunner((cwd) => {

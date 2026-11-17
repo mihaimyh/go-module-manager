@@ -197,6 +197,31 @@ describe('mergeResolution', () => {
     expect(sampler?.advisories).toHaveLength(1);
   });
 
+  it('keeps a row failure and replacement across a resolve patch', () => {
+    const withFailure = mergeRowFailure(declared, MANIFEST, 'rsc.io/quote', 'go: permission denied');
+    const replaced = {
+      ...withFailure,
+      rows: withFailure.rows.map((row) =>
+        row.name === 'rsc.io/quote'
+          ? { ...row, replacement: { path: '../quote', version: undefined } }
+          : row,
+      ),
+    };
+
+    const model = mergeResolution(replaced, {
+      manifestPath: MANIFEST,
+      dependencies: [
+        { name: 'rsc.io/quote', version: 'v1.5.1', candidate: 'v1.5.2', kind: 'patch' },
+        { name: 'rsc.io/sampler', version: 'v1.3.0' },
+      ],
+    });
+
+    const quote = model.rows.find((row) => row.name === 'rsc.io/quote');
+    expect(quote?.failure).toMatch(/permission denied/);
+    expect(quote?.replacement).toEqual({ path: '../quote' });
+    expect(quote?.candidate).toBe('v1.5.2');
+  });
+
   it('hides a prerelease candidate unless asked for it', () => {
     const resolvedProject = {
       manifestPath: MANIFEST,

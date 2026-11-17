@@ -52,6 +52,29 @@ export interface TargetChange {
  * Groups explicit per-project changes (Add, Update, Consolidate, Remove) by
  * owning manifest so each project runs a single `go get`.
  */
+/**
+ * Tidy deletes unimported new requires, so a project that just gained a module
+ * is not tidy-eligible until the user imports it.
+ */
+export function tidyEligibleManifests(
+  succeededManifests: readonly string[],
+  written: readonly { readonly manifestPath: string; readonly name: string }[],
+  declaredBefore: readonly { readonly manifestPath: string; readonly name: string }[],
+): readonly string[] {
+  const declared = new Set(
+    declaredBefore.map((entry) => `${entry.manifestPath}#${entry.name}`),
+  );
+  return [...new Set(succeededManifests)].filter((manifestPath) => {
+    const names = written
+      .filter((entry) => entry.manifestPath === manifestPath)
+      .map((entry) => entry.name);
+    if (names.length === 0) {
+      return true;
+    }
+    return names.every((name) => declared.has(`${manifestPath}#${name}`));
+  });
+}
+
 export function planTargetChanges(
   targets: readonly TargetChange[],
 ): readonly UpdateRequest[] {

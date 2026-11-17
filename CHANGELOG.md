@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.29
+
+### Fixed
+
+- **Update selected** sends explicit target versions (so Include prerelease bulk updates work) and reports skipped visible rows in the confirmation.
+- Post-write resolve is awaited under the write gate so the `go.mod`/`go.sum` watcher cannot abort the in-flight update lookup.
+- Per-row update failures and `replace` metadata survive background resolve patches until the next full workspace re-read.
+- Selection after bulk update unchecks succeeded (and visible up-to-date) rows while keeping failed and filter-hidden checks.
+- Inspector re-runs `go mod why` when the resolved or declared version changes after a write.
+
+### Added
+
+- Post-write toast follow-ups: **Undo**, **Run go mod tidy** (skipped when the write added a new unimported module), and **Sync vendor** when `vendor/modules.txt` exists; `go` / `toolchain` directive bumps appear in the toast body and Output log.
+- `go mod tidy` takes a one-level undo snapshot; its success toast offers **Undo tidy** and optional **Sync vendor**.
+- Collateral unselected `require` moves are logged to **Output → Go Module Manager**.
+
 ## 0.1.28
 
 ### Fixed
