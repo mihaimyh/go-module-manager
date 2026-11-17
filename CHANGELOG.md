@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.28
+
+### Fixed
+
+- **Browse** empty query (and bare `github.com`) no longer hits `pkg.go.dev/v1/search?q=github.com`, which timed out / 500'd. It loads a curated popular-module list via `pkg.go.dev/v1/package` instead (ADR 0013).
+- Incomplete module paths such as `github.com/owner` no longer fall back to `go list` / direct GitHub lookups.
+- `pkg.go.dev` timeouts and HTTP errors name the host clearly in the Browse error state.
+
 ## 0.1.27
 
 ### Added
